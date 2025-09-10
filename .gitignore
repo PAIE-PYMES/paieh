@@ -1,0 +1,5 @@
+*.Rproj
+*_quarto.yml
+*quarto/
+*Rproj*
+.Rhistory
