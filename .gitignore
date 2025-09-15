@@ -3,3 +3,6 @@
 *quarto/
 *Rproj*
 .Rhistory
+.Rproj.user
+
+/.quarto/
