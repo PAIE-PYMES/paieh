@@ -1,0 +1,249 @@
+---
+title: "Ánalsis Exploratorio de Datos sobre PYMES de Brasil"
+title-block-banner: true
+author: "Gonzalo Ruiz <gonzaaruizz22@gmail.com>"
+date: "`r Sys.Date()`"
+fig-width: 15
+fig-height: 10
+format:
+  pdf:
+    toc: true
+    toc-title: "Indice"
+    echo: false
+  html:
+    toc: true
+    toc-title: "Indice"
+    code-fold: true
+execute: 
+  warning: false
+---
+
+```{r}
+#| label: librerias
+#| include: false
+library(tidyverse)
+options(repr.plot.width=50, repr.plot.height=18)
+set.seed(1922)
+```
+
+## Introducción
+
+### Descripción de las variables
+
+| Variable                                                                          | Descripción                                                                     |
+|-------------------------------|-----------------------------------------|
+| anio                                                                              | Año de referencia de la observación.                                            |
+| region                                                                            | Nombre de la unidad territorial a la cual corresponde la observación.           |
+| tramo                                                                             | Clasificación del tamaño de las empresas (ej. 0 a 4, 5 a 9, 10 a 19, etc.).   |
+| sector                                                                            | Sector económico al que pertenece la empresa (ej. industria, servicios, etc.).  |
+| numero_de_empresas_e_outras_organizacoes_unidades                                 | Número total de empresas registradas.                                           |
+| pessoal_ocupado_assalariado_do_sexo_feminino_pessoas                              | Número total de personas asalariadas del sexo femenino                          |
+| pessoal_ocupado_assalariado_do_sexo_masculino_pessoas                             | Número total de personas asalariadas del sexo femenino                          |
+| pessoal_ocupado_assalariado_pessoas                                               | Número total de personas asalariadas                                            |
+| pessoal_ocupado_total_pessoas                                                     | Número total de personas dependientes                                           |
+| salario_medio_mensal_dos_empregados_do_sexo_feminino_das_empresas_em_reais_reais  | Media salarial mensual de los empleados de sexo femenino (en reales)           |
+| salario_medio_mensal_dos_empregados_do_sexo_feminino_salarios_minimos             | Media salarial mensual de los empleados de sexo femenino (salarios mínimos)     |
+| salario_medio_mensal_dos_empregados_do_sexo_masculino_das_empresas_em_reais_reais | Media salarial mensual de los empleados de sexo masculino (en reales)          |
+| salario_medio_mensal_dos_empregados_do_sexo_masculino_salarios_minimos            | Media salarial mensual de los empleados de sexo femenino (salarios mínimos)     |
+| salario_medio_mensal_em_reais_reais                                               | Media salarial mensual en reales                                                |
+| salario_medio_mensal_salarios_minimos                                             | Media salarial mensual (salarios mínimos)                                       |
+| salarios_e_outras_remuneracoes_dos_empregados_do_sexo_feminino_mil_reais          | Salario y otras remuneraciones de los empleados del sexo femenino (mil reales)  |
+| salarios_e_outras_remuneracoes_dos_empregados_do_sexo_masculino_mil_reais         | Salario y otras remuneraciones de los empleados del sexo masculino (mil reales) |
+| salarios_e_outras_remuneracoes_mil_reais                                          | Salario y otras remuneraciones (mil reales)                                     |
+
+```{r}
+#| label: datasets
+#| include: false
+
+pymes_df <- read_csv(file.path("data", "processed", "variables", "br", "pymes.csv"), col_types=cols(anio='c')) |>
+  mutate(tramo = factor(tramo, levels = unique(tramo[order(as.numeric(sub(" .*", "", tramo)))]), ordered = TRUE))
+```
+
+## Ánalisis exploratorio
+
+Al trabajar con datos es natural hacerse preguntas sobre la composición y características de los mismos, es en éste siguiente análisis que intentaremos dar respuestas de manera visual y con medidas de resúmenes numéricas para familiarizarnos con nuestra base de datos.
+
+### Descripción de los datos
+
+```{r}
+pymes_df |>
+  skimr::skim()
+```
+-   ¿Cuál es la dimensión de nuestro Dataset?
+
+Rápidamente se puede apreciar que tenemos un dataset conformado por **`{r} nrow(pymes_df)`** observaciones y **`{r} length(colnames(pymes_df))`** variables. De éstas `{r} length(colnames(pymes_df))` variables vemos que 4 son del tipo character y correspondientes al nivel de agregación de los datos, siendo éstas:
+
+-   Año
+-   Region territorial
+-   Tramo de la empresa (más conocido por el tamaño de la misma)
+-   Sector de la actividad económica a la cual pertenece la empresa
+
+A su vez, de nuestras variables numéricas se empieza a observar que tenemos un indice de completitud (valores presentes) bajo y alrededor del 50-60%.
+También, y como se describió anteriormente, manejamos distintas escalas en nuestras variables numéricas.
+
+-   ¿Existen duplicados?
+
+Tenemos `{r} nrow(pymes_df)` observaciones y si descartamos los duplicados nos queda en: `{r} pymes_df |> distinct() |> nrow()`.
+
+-   ¿Cómo está armado nuestro DataFrame? ¿qué variables contiene? Y ejemplos de observaciones.
+
+    -   Esquema
+
+```{r}
+#| label: glimpse
+pymes_df |> glimpse()
+```
+
+```         
+-   Primeras 6 filas
+```
+
+```{r}
+#| label: head
+pymes_df |> head()
+```
+
+-   Últimas 6 filas
+
+```{r}
+#| label: tail
+pymes_df |> tail()
+```
+
+-   6 filas aleatorias
+
+```{r}
+#label: rand6
+pymes_df |> sample_n(6)
+```
+
+Volviendo al problema de completitud de los datos, es natural preguntarse:
+
+-   ¿El problema de la completitud viene dado por el alto nivel de desagregación dado por el sector?
+
+```{r}
+#| label: pymes_df_agg
+pymes_df |>
+  group_by(anio, region, tramo) |>
+  # Hacemos la sumatoria de las variables entre todos los sectores y agregando por anio, region y tramo
+  summarise(across(matches("numero|pessoal"), ~ sum(.x, na.rm=T)), across(starts_with("salario"), ~ mean(.x, na.rm=T)), .groups="drop") |>
+  # Al remover los NA la sumatoria tiene limite inferior en 0 por lo que lo tratamos como dato faltante.
+  mutate_if(is.numeric, ~ if_else(.x == 0, NA, .x)) |>
+  skimr::skim()
+```
+
+Se observa dos puntos principales:
+
+1. El indice de completitud de las variables numéricas aumenta considerablemente llegando a prácticamente 100% en la mayoría de los casos
+2. Donde el indice no completa el 100%, los valores absolutos apuntan a la falta de al menos 2-3 años de datos (~ 27 regiones * 9 tramos * 3 años).
+
+Veamos la evolución del porcentaje de faltantes por año y variable.
+```{r}
+pymes_df |>
+  group_by(anio, region, tramo) |>
+  summarise(across(matches("numero|pessoal"), ~ sum(.x, na.rm=T)), across(starts_with("salario"), ~ mean(.x, na.rm=T)), .groups="drop") |>
+  mutate_if(is.numeric, ~ if_else(.x == 0, NA, .x)) |>
+  group_by(anio) |>
+  summarise(across(where(is.numeric), ~ sum(is.na(.x)) * 100 / (n_distinct(region) * n_distinct(tramo)))) |>
+  pivot_longer(!anio, names_to="variable", values_to="pct_faltantes") |>
+  mutate(anio = as.Date(paste0(anio, "-01-01"))) |>
+  ggplot(aes(x=anio, y=pct_faltantes, color=variable)) +
+  geom_line(position = position_jitter(width = 0.6, height = 0.35, seed = 1)) +
+  labs(
+    title="Evolución del porcentaje de faltantes para todas las variables",
+    x="Año",
+    y="Porcentaje de faltantes (0-100%)"
+  ) +
+  scale_x_date(date_labels = "%Y", date_breaks = "1 years") +
+  scale_color_discrete(labels=\(x) str_trunc(x, width=20, side="center", ellipsis="..")) +
+  theme_minimal()
+```
+Se puede concluir que los datos faltantes provienen mayoritariamente de los primeros años de las series para algunas variables con pequeños saltos a lo largo debido a faltantes en algún año, región y tramo.
+
+Por lo tanto, a partir de ahora, utilizaremos año, región y tramo como nivel de agregación para los siguientes ánalisis.
+```{r}
+#| label: agg-pymes-df
+#| include: false
+
+agg_pymes_df <- pymes_df |>
+  group_by(anio, region, tramo) |>
+  summarise(across(matches("numero|pessoal"), ~ sum(.x, na.rm=T)), across(starts_with("salario"), ~ mean(.x, na.rm=T)), .groups="drop") |>
+  mutate_if(is.numeric, ~ if_else(.x == 0, NA, .x))
+```
+
+
+-   ¿Cómo se comportan las distintas variables numéricas por tamaño de la empresa? ¿Cómo es su distribución? ¿Y el apartamiento?
+```{r}
+#| label: dist-num-vars
+agg_pymes_df |>
+  ungroup() %>%
+  split(f=.$tramo) |>
+  lapply(\(x) x |> summarise(across(where(is.numeric), .fns=list(
+    min=~min(., na.rm=T),
+    p25 = ~quantile(., 0.25, na.rm=T),
+    mediana = ~median(., na.rm=T),
+    media = ~mean(., na.rm=T),
+    p75 = ~quantile(., 0.75, na.rm=T),
+    max=~max(., na.rm=T),
+    std_dev = ~sd(., na.rm=T),
+    std_err = ~sd(., na.rm=T)/sqrt(n()),
+    cv=~100*(sd(., na.rm=T)/mean(., na.rm=T)),
+    cant_faltantes=~sum(is.na(.))
+  ), .names = "{.col}-{.fn}")) |>
+    pivot_longer(everything(), names_sep="-", names_to=c("variable", ".value")))
+```
+
+### **Visualización**  de los datos
+
+-   ¿Cómo evolucionan la cantidad de empresas a nivel nacional y por tramo de empresa?
+
+```{r}
+#| label: evolucion-cant-empresas
+agg_pymes_df |>
+  group_by(anio, tramo) |>
+  summarise(cant_empresas = sum(numero_de_empresas_e_outras_organizacoes_unidades), .groups="drop") |>
+  ggplot(aes(x=as.Date(paste0(anio, "-01-01")), y=log(cant_empresas), color=tramo)) +
+  geom_line(position = position_jitter(width = 0.6, height = 0.35, seed = 1)) +
+  labs(
+    title="Evolución de la cantidad de empresas por tramo (tamaño)",
+    subtitle="A nivel nacional y en escala logaritmica",
+    x="Año",
+    y="Número total de empresas"
+  ) +
+  scale_x_date(date_labels = "%Y", date_breaks = "1 years") +
+  theme_light()
+```
+
+- ¿Y en la cantidad de personal empleado?
+
+```{r}
+#| label: evolucion-cant-empleados
+agg_pymes_df |>
+  group_by(anio, tramo) |>
+  summarise(cant_empleados = sum(pessoal_ocupado_total_pessoas), .groups="drop") |>
+  ggplot(aes(x=as.Date(paste0(anio, "-01-01")), y=log10(cant_empleados), color=tramo)) +
+  geom_line(position = position_jitter(width = 0.6, height = 0.35, seed = 1)) +
+  labs(
+    title="Evolución de la cantidad de empleados por tramo (tamaño)",
+    subtitle="A nivel nacional y en escala logaritmica de base10",
+    x="Año",
+    y="Número total de empleados"
+  ) +
+  scale_x_date(date_labels = "%Y", date_breaks = "1 years") +
+  theme_light()
+```
+
+- ¿Cómo se distribuyen los salarios a lo largo de los años y regiones por tramo?
+```{r}
+agg_pymes_df |>
+  select(anio:tramo, starts_with("salario") & !matches("sexo")) |>
+  pivot_longer(cols=starts_with("salario"), names_to="variable", values_to="valor") |>
+  ggplot(aes(y=log(valor), x=variable, fill=tramo)) +
+  geom_boxplot() +
+  labs(
+    title="Distribuciones de las variables de salarios por tramo de empresa",
+    subtitle="Contemplando todo el periodo y regiones",
+    x="Variable",
+    y="Salario (en escala logaritmica)"
+  )
+```

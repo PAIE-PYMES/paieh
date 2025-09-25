@@ -1,0 +1,210 @@
+---
+title: "Ánalsis Exploratorio de Datos sobre PYMES de Uruguay"
+title-block-banner: true
+author: "Gonzalo Ruiz <gonzaaruizz22@gmail.com>"
+date: "`r Sys.Date()`"
+fig-width: 15
+fig-height: 10
+format:
+  pdf:
+    toc: true
+    toc-title: "Indice"
+    echo: false
+  html:
+    toc: true
+    toc-title: "Indice"
+    code-fold: true
+execute: 
+  warning: false
+---
+
+```{r}
+#| label: librerias
+#| include: false
+library(tidyverse)
+options(repr.plot.width=50, repr.plot.height=18)
+set.seed(1922)
+```
+
+## Introducción
+
+### Descripción de las variables
+
+| Variable                                                                          | Descripción                                                                     |
+|-------------------------------|-----------------------------------------|
+| anio                                                                              | Año de referencia de la observación.                                            |
+| region                                                                            | Nombre de la unidad territorial a la cual corresponde la observación.           |
+| tramo                                                                             | Clasificación del tamaño de las empresas (ej. 0 a 4, 5 a 9, 10 a 19, etc.).   |
+| sector                                                                            | Sector económico al que pertenece la empresa (ej. industria, servicios, etc.). |
+| contribucion_po | Porcentaje de contribución al personal ocupado. |
+| contribucion_vtas | Porcentaje de contribución al total de ventas. |
+| n_empresas | Numero total de empresas. |
+| n_muertes | Numero total de empresas que desaparecieron. |
+| n_nacimientos | Numero total de empresas que se crearon. |
+| tm | Tasa de mortalidad de las empresas. |
+| ts | Tasa de supervivencia de las empresas. |
+| tn | Tasa de natalidad de las empresas. |
+```{r}
+#| label: datasets
+#| include: false
+
+pymes_df <- read_csv(file.path("data", "processed", "variables", "uy", "pymes.csv"), col_types=cols(anio='c', tramo='f')) |>
+  rename(region = departamento)
+```
+
+## Ánalisis exploratorio
+
+Al trabajar con datos es natural hacerse preguntas sobre la composición y características de los mismos, es en éste siguiente análisis que intentaremos dar respuestas de manera visual y con medidas de resúmenes numéricas para familiarizarnos con nuestra base de datos.
+
+### Descripción de los datos
+
+```{r}
+pymes_df |>
+  skimr::skim()
+```
+-   ¿Cuál es la dimensión de nuestro Dataset?
+
+Rápidamente se puede apreciar que tenemos un dataset conformado por **`{r} nrow(pymes_df)`** observaciones y **`{r} length(colnames(pymes_df))`** variables. De éstas `{r} length(colnames(pymes_df))` variables vemos que 3 son del tipo character y correspondientes al nivel de agregación de los datos, siendo éstas:
+
+-   Año
+-   Región territorial
+-   Tramo de la empresa (más conocido por el tamaño de la misma)
+
+A su vez, de nuestras variables numéricas se empieza a observar que tenemos un indice de completitud (valores presentes) bajo y alrededor del 50-60%.
+También, y como se describió anteriormente, manejamos distintas escalas en nuestras variables numéricas.
+
+-   ¿Existen duplicados?
+
+Tenemos `{r} nrow(pymes_df)` observaciones y si descartamos los duplicados nos queda en: `{r} pymes_df |> distinct() |> nrow()`.
+
+-   ¿Cómo está armado nuestro DataFrame? ¿qué variables contiene? Y ejemplos de observaciones.
+
+    -   Esquema
+
+```{r}
+#| label: glimpse
+pymes_df |> glimpse()
+```
+
+```         
+-   Primeras 6 filas
+```
+
+```{r}
+#| label: head
+pymes_df |> head()
+```
+
+-   Últimas 6 filas
+
+```{r}
+#| label: tail
+pymes_df |> tail()
+```
+
+-   6 filas aleatorias
+
+```{r}
+#label: rand6
+pymes_df |> sample_n(6)
+```
+
+Volviendo al problema de completitud de los datos, es natural preguntarse:
+
+Veamos la evolución del porcentaje de faltantes por año y variable.
+```{r}
+pymes_df |>
+  group_by(anio) |>
+  summarise(across(where(is.numeric), ~ sum(is.na(.x)) * 100 / (n_distinct(region) * n_distinct(tramo)))) |>
+  pivot_longer(!anio, names_to="variable", values_to="pct_faltantes") |>
+  mutate(anio = as.Date(paste0(anio, "-01-01"))) |>
+  ggplot(aes(x=anio, y=pct_faltantes, color=variable)) +
+  geom_line(position = position_jitter(width = 0.6, height = 0.35, seed = 1)) +
+  labs(
+    title="Evolución del porcentaje de faltantes para todas las variables",
+    x="Año",
+    y="Porcentaje de faltantes (0-100%)"
+  ) +
+  scale_x_date(date_labels = "%Y", date_breaks = "1 years") +
+  theme_minimal()
+```
+Se puede concluir que los datos faltantes provienen mayoritariamente de las variables relacionadas a las muertes y nacimientos de las empresas y que faltan para algún departamento y estos son menos de la mitad.
+
+-   ¿Cómo se comportan las distintas variables numéricas por tamaño de la empresa? ¿Cómo es su distribución? ¿Y el apartamiento?
+```{r}
+#| label: dist-num-vars
+pymes_df %>%
+  split(f=.$tramo) %>%
+  lapply(\(x) x %>% summarise(across(where(is.numeric), .fns=list(
+    min=~min(., na.rm=T),
+    p25 = ~quantile(., 0.25, na.rm=T),
+    mediana = ~median(., na.rm=T),
+    media = ~mean(., na.rm=T),
+    p75 = ~quantile(., 0.75, na.rm=T),
+    max=~max(., na.rm=T),
+    std_dev = ~sd(., na.rm=T),
+    std_err = ~sd(., na.rm=T)/sqrt(n()),
+    cv=~100*(sd(., na.rm=T)/mean(., na.rm=T)),
+    cant_faltantes=~sum(is.na(.))
+  ), .names = "{.col}-{.fn}")) |>
+    pivot_longer(everything(), names_sep="-", names_to=c("variable", ".value")))
+```
+
+> Las tasas de mortalidad, natalidad y de supervivencia de las empresas no se encuentran disponibles para las empresas de tamaño micro.
+
+### **Visualización**  de los datos
+
+-   ¿Cómo evolucionan la cantidad de empresas a nivel nacional y por tramo de empresa?
+
+```{r}
+#| label: evolucion-cant-empresas
+pymes_df |>
+  group_by(anio, tramo) |>
+  summarise(cant_empresas = sum(n_empresas), .groups="drop") |>
+  ggplot(aes(x=as.Date(paste0(anio, "-01-01")), y=log(cant_empresas), color=tramo)) +
+  geom_line(position = position_jitter(width = 0.6, height = 0.35, seed = 1)) +
+  labs(
+    title="Evolución de la cantidad de empresas por tramo (tamaño)",
+    subtitle="A nivel nacional y en escala logaritmica",
+    x="Año",
+    y="Número total de empresas"
+  ) +
+  scale_x_date(date_labels = "%Y", date_breaks = "1 years") +
+  theme_light()
+```
+
+- ¿Y en la contribución al personal empleado?
+
+```{r}
+#| label: evolucion-cant-empleados
+pymes_df |>
+  group_by(anio, tramo) |>
+  summarise(cant_empleados = mean(contribucion_po), .groups="drop") |>
+  ggplot(aes(x=as.Date(paste0(anio, "-01-01")), y=(cant_empleados), color=tramo)) +
+  geom_line(position = position_jitter(width = 0.6, height = 0.35, seed = 1)) +
+  labs(
+    title="Evolución de la cantidad de empleados por tramo (tamaño)",
+    subtitle="A nivel nacional",
+    x="Año",
+    y="Media del porcentaje de empleados"
+  ) +
+  scale_x_date(date_labels = "%Y", date_breaks = "1 years") +
+  theme_light()
+```
+
+- ¿Y en la contribución a las ventas?
+```{r}
+pymes_df |>
+  group_by(anio, tramo) |>
+  summarise(cant_empleados = mean(contribucion_po), .groups="drop") |>
+  ggplot(aes(x=as.Date(paste0(anio, "-01-01")), y=(cant_empleados), color=tramo)) +
+  geom_line(position = position_jitter(width = 0.6, height = 0.35, seed = 1)) +
+  labs(
+    title="Evolución del porcentaje de contribución a las ventas por tramo (tamaño)",
+    subtitle="A nivel nacional",
+    x="Año",
+    y="Media del porcentaje de empleados"
+  ) +
+  scale_x_date(date_labels = "%Y", date_breaks = "1 years") +
+  theme_light()
+```
