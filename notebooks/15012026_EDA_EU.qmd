@@ -1,5 +1,5 @@
 ---
-title: "Análisis inicial: España e Italia (Estructura PyME)"
+title: "Análisis inicial: España e Italia"
 author: "paie"
 format: 
   html:
@@ -45,15 +45,14 @@ df_eu <- bind_rows(
 
 ```
 
-Agrego un indicador relativo de cant de empresas
+Agrego indicadores relativos de cantidad de empresas:
 
 ```{r}
 # Indicadores Relativos 
-# Creamos la variable de 'Peso PyME' (empresas por cada 1,000 habitantes)
 df_eu <- df_eu |>
   mutate(
-    ent_per_1000 = (ent_nr / poblacion) * 1000,
-    tasa_empleo_pyme = (emp_nr / poblacion) * 100
+    ent_per_1000 = (ent_nr / poblacion) * 1000, #(empresas por cada 1000 habitantes)
+    tasa_empleo_pyme = (emp_nr / poblacion) * 100 #(empleados por cada 100 habitantes)
   )
 
 ```
