@@ -136,6 +136,23 @@ main <- function() {
     map(do.call, what=read_ine_variable) |>
     reduce(left_join, by=join_by(anio, region))
   
+  # Leemos el Gini por separado debido a que la base tiene múltiples indicadores (Gini, P80/P20) y subregiones
+  gini_df <- read_csv2(file.path("data", "raw", "es", "control", "distribucion.csv"), 
+                       locale = locale(encoding = "UTF-8")) |> 
+    rename_with(tolower) |>
+    # Filtramos solo el indicador de Gini
+    filter(str_detect(`indicadores de renta media`, fixed("Índice de Gini"))) |>
+    separate(`comunidades y ciudades autónomas`, into = c("codigo", "region_raw"), 
+             sep = " ", extra = "merge", fill = "left") |>
+    mutate(
+      region = ifelse(is.na(region_raw) & `total nacional` == "Total Nacional", "Total", region_raw),
+      anio = as.Date(paste(periodo, "01", "01", sep="-")),
+      gini_unidad = "Indice"
+    ) |>
+    # Eliminamos la fila donde la región es "Total"
+    filter(region != "Total") |> 
+    select(anio, region, gini = total, gini_unidad)
+  
   # Leemos el IDH por separado debido a que es un csv que contiene el HDI nacional y subnacional para todos los paises del mundo practicamente
   idh_df <- read_csv(file.path("data", "raw", "control", "GDL-Subnational-HDI-data.csv"), col_select = c("Country", "Level", "Region", "Year", "shdi")) |>
     rename_with(tolower) |>
@@ -148,6 +165,26 @@ main <- function() {
     mutate(region_cleaned = stringi::stri_trans_general(region, id = "Latin-ASCII") |> tolower()) |>
     left_join(
       idh_df |> mutate(region_cleaned = tolower(region)) |> select(!region),
+      by=join_by(region_cleaned, anio)
+    ) |>
+    left_join(
+      gini_df |> 
+        mutate(region_cleaned = stringi::stri_trans_general(region, id = "Latin-ASCII")) |>
+        mutate(
+          region_cleaned = case_when(
+            str_detect(region, "Asturias") ~ "principado de asturias",
+            str_detect(region, "Balears") ~ "illes balears ",
+            str_detect(region, "Castilla - La Mancha") ~ "castilla-la mancha",
+            str_detect(region, "Valenciana") ~ "comunidad valenciana",
+            str_detect(region, "Madrid") ~ "comunidad de madrid",
+            str_detect(region, "Murcia") ~ "region de murcia",
+            str_detect(region, "Navarra") ~ "comunidad foral de navarra",
+            str_detect(region, "Rioja") ~ "la rioja",
+            str_detect(region, "Ceuta") ~ "ciudad autonoma de ceuta",
+            str_detect(region, "Melilla") ~ "ciudad autonoma de melilla",
+            .default = tolower(region_cleaned)
+          )
+        ) |> select(!region),
       by=join_by(region_cleaned, anio)
     ) |>
     left_join(
