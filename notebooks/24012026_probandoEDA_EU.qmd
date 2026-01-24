@@ -97,7 +97,7 @@ df_eu |>
   theme_minimal() +
   labs(title = "Distribución del número de empresas por tramo",
        y = "Número de empresas (escala log)",
-       x = "Tramo de tamaño")
+       x = "Tramo")
 ```
 o sea hay un monton de empresas soy tan petit 
 
@@ -117,7 +117,7 @@ df_eu |>
   geom_smooth(method = "lm") +
   theme_minimal() +
   labs(title = "Relación Pequeñas empresas vs PBI per cápita",
-       x = "Cant. de empresas (Tramo 1-9) cada 1000 hab",
+       x = "Cant. de empresas (del Tramo 1-9 empleados) cada 1000 hab",
        y = "PBI per cápita")
 ```
 ```{r}
@@ -162,12 +162,115 @@ ggplot(df_cuadrantes, aes(x = ent_per_1000, y = pbi_per_capita, color = patron))
   theme(legend.position = "bottom") +
   labs(
     title = "Cuadrantes: relación empresas pequeñas y PIB",
-    subtitle = "Basado en medianas nacionales para el tramo 1-9 empresas",
-    x = "Empresas (1-9) cada 1000 habitantes",
+    subtitle = "Basado en medianas nacionales para empresas de 1-9 empleados",
+    x = "Empresas (de 1-9 empleados) cada 1000 habitantes",
     y = "PBI per cápita",
     color = "Patrón identificado:"
   )
 ```
 
+```{r}
 
+# misma graf de antes pero por tramos
+
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+
+# Definimos los tramos que queremos comparar
+tramos_interes <- c("0", "1 a 9", "+10")
+
+df_cuadrantes <- df_eu |>
+  filter(tramo %in% tramos_interes) |>
+  group_by(pais, tramo) |>
+  mutate(
+    mediana_pyme = median(ent_per_1000, na.rm = TRUE),
+    mediana_pbi = median(pbi_per_capita, na.rm = TRUE),
+    patron = case_when(
+      ent_per_1000 >= mediana_pyme & pbi_per_capita >= mediana_pbi ~ "A: Alta Densidad / Alto PBI",
+      ent_per_1000 < mediana_pyme  & pbi_per_capita >= mediana_pbi ~ "B: Baja Densidad / Alto PBI",
+      ent_per_1000 >= mediana_pyme & pbi_per_capita < mediana_pbi  ~ "C: Alta Densidad Bajo PBI",
+      ent_per_1000 < mediana_pyme  & pbi_per_capita < mediana_pbi  ~ "D: Baja Densidad/ Bajo PBI"
+    )
+  ) |>
+  ungroup()
+
+ggplot(df_cuadrantes, aes(x = ent_per_1000, y = pbi_per_capita, color = patron)) +
+  geom_point(alpha = 0.6, size = 2) +
+  # Líneas de referencia dinámicas por faceta
+  geom_hline(aes(yintercept = mediana_pbi), linetype = "dashed", color = "gray60") +
+  geom_vline(aes(xintercept = mediana_pyme), linetype = "dashed", color = "gray60") +
+  # Facetamos por País (columnas) y Tramo (filas)
+  facet_grid(tramo ~ pais, scales = "free") + 
+  scale_color_manual(values = c("#2E7D32", "#1565C0", "#F9A825", "#C62828")) +
+  theme_minimal() +
+  labs(
+    title = "Análisis de Cuadrantes por Tamaño de Empresa",
+    subtitle = "Comparativa regional: Densidad Empresarial vs PBI per cápita",
+    x = "Empresas por cada 1000 habitantes",
+    y = "PBI per cápita",
+    color = "Perfil Regional"
+  ) +
+  theme(legend.position = "bottom")
+```
+
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(ggrepel)
+
+# mismo graf que antes pero con etiquetas para las regiones en el cuadrante q nos interesa
+#filtre por algun año para q no se repita la mimsa region dif años
+# si no se repetia nomas una o dos (madrid, pais vasco, bolzano)
+
+# 1. Filtramos por el último año y limpiamos duplicados
+ultimo_anio <- max(df_eu$anio, na.rm = TRUE)
+
+df_cuadrantes_completo <- df_eu |>
+  filter(anio == ultimo_anio) |> 
+  filter(tramo %in% c("0", "1 a 9", "+10")) |>
+  # Aseguramos un solo punto por cada región
+  distinct(pais, region, tramo, .keep_all = TRUE) |> 
+  group_by(pais, tramo) |>
+  mutate(
+    mediana_densidad = median(ent_per_1000, na.rm = TRUE),
+    mediana_pbi = median(pbi_per_capita, na.rm = TRUE),
+    patron = case_when(
+      ent_per_1000 >= mediana_densidad & pbi_per_capita >= mediana_pbi ~ "A: Alta Densidad / Alto PBI",
+      ent_per_1000 < mediana_densidad  & pbi_per_capita >= mediana_pbi ~ "B: Baja Densidad / Alto PBI",
+      ent_per_1000 >= mediana_densidad & pbi_per_capita < mediana_pbi  ~ "C: Alta Densidad / Bajo PBI",
+      ent_per_1000 < mediana_densidad  & pbi_per_capita < mediana_pbi  ~ "D: Baja Densidad / Bajo PBI"
+    ),
+    # ETIQUETAMOS TODAS las del cuadrante A
+    etiqueta_todas_A = if_else(patron == "A: Alta Densidad / Alto PBI", region, NA_character_)
+  ) |>
+  ungroup()
+
+# 2. Visualización Total
+ggplot(df_cuadrantes_completo, aes(x = ent_per_1000, y = pbi_per_capita, color = patron)) +
+  geom_point(alpha = 0.6, size = 2) +
+  # Etiquetas para todas las regiones en A
+  geom_text_repel(
+    aes(label = etiqueta_todas_A),        
+    force = 8,           # Empuje moderado
+    max.overlaps = Inf,  # FORZAMOS a que aparezcan todas sin importar si se solapan un poco
+    segment.size = 0.2,  # Líneas de conexión finitas
+    show.legend = FALSE
+  ) +
+  geom_hline(aes(yintercept = mediana_pbi), linetype = "dashed", color = "gray60") +
+  geom_vline(aes(xintercept = mediana_densidad), linetype = "dashed", color = "gray60") +
+  facet_grid(tramo ~ pais, scales = "free") + 
+  scale_color_manual(values = c("#2E7D32", "#1565C0", "#F9A825", "#C62828")) +
+  theme_minimal() +
+  labs(
+    title = "Cuadrantes de regiones de Italia y España",
+    subtitle = paste("Densidad empresarial y PBI (", ultimo_anio, ")"),
+    x = "Empresas por cada 1000 habitantes",
+    y = "PBI per cápita",
+    color = "Perfil Regional"
+  ) +
+  theme(legend.position = "bottom",
+        strip.text = element_text(face = "bold"))
+```
 
