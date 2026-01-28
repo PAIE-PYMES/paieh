@@ -90,19 +90,22 @@ Agrego algunos indicadores de peso pymes
 
 ```{r}
 df_mipyme <- df_eu %>%
+  filter(tramo != "TOTAL") %>%
   group_by(pais, id_region, region, tramo) %>%
   summarise(ent = sum(ent_nr, na.rm = TRUE), .groups = "drop") %>%
   pivot_wider(names_from = tramo, values_from = ent, values_fill = 0) %>%
   rename(
-    ent_0 = `0`, # que hacenos con esto?
-    ent_micro = `1-9`,
-    ent_no_micro = `+10`
+    ent_0 = `0`, # que hacenos con esto? autoempleo?
+    ent_micro = `1 a 9`,
+    ent_no_micro = `+10` #aca hay grandes pero tmb medianas
   ) %>%
   mutate(
-    ent_total = ent_micro + ent_no_micro,
-    peso_micro = ent_micro / ent_total,
-    peso_mipyme = (ent_micro + ent_no_micro) / ent_total, # es 1 pq descarte 0
-    ratio_micro_no_micro = ent_micro / ent_no_micro
+    ent_total = ent_micro + ent_no_micro, #capaz agregar las de 0, o usar directamente el TOTAL
+    # este total implicaria que al menos tengan un empleado
+    peso_micro = ent_micro / ent_total, 
+    ratio_micro_no_micro = ent_micro / ent_no_micro,
+    # Autoempleo como indicador separado
+    peso_autoempleo = ent_0 / (ent_0 + ent_total)
   )
 
 df_reg <- df_reg %>%
@@ -128,6 +131,8 @@ df_reg %>%
     hdi = mean(hdi, na.rm = TRUE)
   )
 
+# q onda crimen
+
 ```
 
 
@@ -140,6 +145,7 @@ df_reg %>%
   scale_x_continuous(labels = dollar_format()) +
   theme_minimal()
 
+
 ```
 
 # Análisis bivariado
@@ -147,7 +153,9 @@ df_reg %>%
 Ahora análisis bivariado de mipymes y otras variables
 
 ```{r}
-#MIPYMES y pib pc
+#empresas y pib pc
+
+# ent per 1000 era todas?
 
 ggplot(df_reg, aes(ent_per_1000, pbi_per_capita, color = pais)) +
   geom_point(alpha = 0.7) +
@@ -162,6 +170,8 @@ ggplot(df_reg, aes(ent_per_1000, pbi_per_capita, color = pais)) +
 
 ```{r}
 # Empleo en mipymes y desigualdad
+ #revisar como construi tasa empleo
+
 ggplot(df_reg, aes(tasa_empleo_pyme, gini, color = pais)) +
   geom_point() +
   geom_smooth(method = "lm", se = FALSE) +
@@ -194,6 +204,9 @@ df_reg <- df_reg %>%
     )
   )
 
+# me falta algo: filtrar las chicas
+# creo que df_reg tiene tODAS las empresas
+
 ```
 
 
@@ -212,9 +225,6 @@ ggplot(df_reg, aes(q_mipyme, pbi_per_capita, fill = pais)) +
 ggplot(df_reg, aes(q_mipyme, gini, fill = pais)) +
   geom_boxplot(alpha = 0.6) +
   theme_minimal()
-
-
-#revisar tema no linealidad
 ```
 
 capaz ver con otras var
@@ -227,12 +237,15 @@ capaz ver con otras var
 
 vars_std <- c(
   "ent_per_1000", "peso_micro", "ratio_micro_no_micro",
-  "pbi_per_capita", "gini", "hdi",
+  "pbi_per_capita", "hdi",
   "tasa_criminalidad", "densidad_pobl"
 )
 
+#no puse gini pq italia no lo tiene
+
 df_std <- df_reg %>%
-  mutate(across(all_of(vars_std), scale))
+  mutate(across(all_of(vars_std), ~ as.numeric(scale(.))))
+
 
 ```
 
@@ -246,34 +259,8 @@ df_mm <- df_reg %>%
 
 ```
 
-# Comparacion de medias y PCA
 
-```{r}
-pca_data <- df_std %>%
-  select(all_of(vars_std)) %>%
-  drop_na()
-
-pca <- PCA(pca_data, scale.unit = FALSE, graph = FALSE)
-
-```
-
-
-```{r}
-fviz_pca_biplot(
-  pca,
-  habillage = df_reg$pais,
-  addEllipses = TRUE,
-  repel = TRUE
-)
-
-```
-
-Nota de ia: 
-Interpretación típica:
-
-PC1 = desarrollo socioeconómico
-PC2 = estructura productiva MIPYME
-
+#comparo medias
 
 ```{r}
 # Comparacion de medias por pais
@@ -284,32 +271,100 @@ df_reg %>%
 ```
 
 
-# Clustering
+# PCA y Clustering
+
+```{r}
+
+pca_df <- df_std %>%
+  select(pais, region, all_of(vars_std)) %>%
+  drop_na()
+
+```
+
+```{r}
+pca_data <- pca_df %>%
+  select(all_of(vars_std)) %>%
+  as.data.frame()
+
+pca <- PCA(pca_data, scale.unit = FALSE, graph = FALSE)
+
+
+pca$var$coord # veo que variables pesan mas
+
+pca$eig
+
+
+```
+
+```{r}
+#extraigo scores
+
+scores <- as.data.frame(pca$ind$coord[, 1:2])
+colnames(scores) <- c("PC1", "PC2")
+
+pca_df <- bind_cols(pca_df, scores)
+```
+
 
 ```{r}
 #determinar num de clusters
+fviz_nbclust(
+  pca_data,
+  kmeans,
+  method = "silhouette"
+)
 
-fviz_nbclust(pca_data, kmeans, method = "silhouette")
+fviz_nbclust(
+  pca_df[, c("PC1", "PC2")],
+  kmeans,
+  method = "silhouette"
+)
 
 ```
 
+
 ```{r}
+#clustering sobre pca
 set.seed(123)
 
-clust <- kmeans(pca_data, centers = 4, nstart = 25) #aca usa k 4
+clust <- kmeans(
+  pca_df[, c("PC1", "PC2")],
+  centers = 4, #uso 4 pq no me importo lo anterior
+  nstart = 25
+)
 
-df_reg$cluster <- factor(clust$cluster)
+pca_df$cluster <- factor(clust$cluster)
+
+
 
 ```
 
 ```{r}
-ggplot(df_reg, aes(PC1, PC2, color = cluster, shape = pais)) +
+ggplot(pca_df, aes(PC1, PC2, color = cluster, shape = pais)) +
   geom_point(size = 3) +
+  geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.4) +
+  geom_vline(xintercept = 0, linetype = "dashed", alpha = 0.4) +
+  labs(
+    x = "PC1 – Desarrollo socioeconómico",
+    y = "PC2 – Estructura PYME",
+    color = "Tipología regional"
+  ) +
   theme_minimal()
+
 
 ```
 
 queremos ver tipologias regionales: tipo region alta pymes y alto des, alta pymes sbajo des...
+
+```{r}
+pca_df %>%
+  group_by(cluster) %>%
+  summarise(
+    across(all_of(vars_std), mean)
+  )
+
+```
+
 
 # Graficos tipo radar o telaraña
 
@@ -319,7 +374,6 @@ vars_radar <- c(
   "ent_per_1000",
   "tasa_empleo_pyme",
   "pbi_per_capita",
-  "gini",
   "tasa_pobreza",
   "tasa_criminalidad"
 )
@@ -329,7 +383,6 @@ vars_radar <- c(
 df_radar <- df_reg %>%
   select(pais, region, all_of(vars_radar)) %>%
   mutate(
-    gini = -gini,
     tasa_pobreza = -tasa_pobreza,
     tasa_criminalidad = -tasa_criminalidad
   ) %>%
@@ -352,12 +405,13 @@ reg_modelo <- df_radar %>%
 
 
 ```{r}
+#install.packages("devtools")
+#devtools::install_github("ricardo-bion/ggradar")
 
 library(ggradar)
 
 radar_data <- reg_modelo %>%
   select(region, all_of(vars_radar))
-
 
 ```
 
