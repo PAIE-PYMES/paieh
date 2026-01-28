@@ -1,0 +1,421 @@
+---
+title: "Informe inicial para Italia y España"
+author: "cami"
+format: html
+---
+
+Armé otro informe para ir dejando graficas de forma más prolija, en el otro tiro cosas para probar.
+
+# Procesado inicial
+
+```{r}
+
+library(tidyverse)
+library(scales)
+library(broom)
+library(FactoMineR)
+library(factoextra)
+library(cluster)
+library(patchwork)
+library(here)
+library(skimr) 
+library(GGally) 
+
+# Carga de datos 
+ita_control <- read_csv(here("data","processed","variables","it", "control.csv")) |> 
+  mutate(anio = year(anio), pais = "Italia")
+
+es_control  <- read_csv(here("data","processed","variables","es", "control.csv")) |> 
+  mutate(anio = year(anio), pais = "España")
+
+ita_pymes <- read_csv(here("data","processed","variables","it", "pymes.csv"))
+es_pymes  <- read_csv(here("data","processed","variables","es", "pymes.csv"))
+
+# Unimos 
+df_eu <- bind_rows(
+  ita_control |> inner_join(ita_pymes, by = c("region", "anio")),
+  es_control  |> inner_join(es_pymes, by = c("region", "anio"))
+) |>
+# Limpieza y Unificación de población
+  mutate(
+    pais = coalesce(pais.x, pais.y),
+    poblacion = coalesce(poblacion_total, pobl_total)
+  ) |>
+  select(-pais.x, -pais.y, -poblacion_total, -pobl_total)
+
+```
+ 
+Agrego indicadores relativos de cantidad de empresas:
+
+```{r}
+# Indicadores Relativos 
+df_eu <- df_eu |>
+  mutate(
+    ent_per_1000 = (ent_nr / poblacion) * 1000, #(empresas por cada 1000 habitantes)
+    tasa_empleo_pyme = (emp_nr / poblacion) * 100 #(empleados por cada 100 habitantes)
+  )
+
+```
+
+Reviso la estructura de los datos
+
+```{r}
+#| label: res_data
+# Resumen
+df_eu |> 
+  group_by(pais) |> 
+  skim()
+
+names(df_eu)
+```
+
+Usamos promedio de las variables por region
+
+```{r}
+# Hago promedio por region asi es mejor el analisis (porque tenemos muchos años)
+df_reg <- df_eu %>%
+  group_by(pais, id_region, region) %>%
+  summarise(
+    across(
+      c(renta_media_hogar, pbi_per_capita, gini, hdi,
+        tasa_criminalidad, tasa_homicidios, tasa_pobreza,
+        densidad_pobl, ent_per_1000, tasa_empleo_pyme),
+      mean, na.rm = TRUE
+    ),
+    .groups = "drop"
+  )
+```
+
+Agrego algunos indicadores de peso pymes
+
+```{r}
+df_mipyme <- df_eu %>%
+  group_by(pais, id_region, region, tramo) %>%
+  summarise(ent = sum(ent_nr, na.rm = TRUE), .groups = "drop") %>%
+  pivot_wider(names_from = tramo, values_from = ent, values_fill = 0) %>%
+  rename(
+    ent_0 = `0`, # que hacenos con esto?
+    ent_micro = `1-9`,
+    ent_no_micro = `+10`
+  ) %>%
+  mutate(
+    ent_total = ent_micro + ent_no_micro,
+    peso_micro = ent_micro / ent_total,
+    peso_mipyme = (ent_micro + ent_no_micro) / ent_total, # es 1 pq descarte 0
+    ratio_micro_no_micro = ent_micro / ent_no_micro
+  )
+
+df_reg <- df_reg %>%
+  left_join(df_mipyme, by = c("pais", "id_region", "region"))
+
+
+```
+
+
+# Análisis descriptivo de las variables socioeconómicas
+
+Esto para ver como son las variables dentro de los paises
+Capaz se pone mas adelante
+
+```{r}
+# Tablas resumen por país
+df_reg %>%
+  group_by(pais) %>%
+  summarise(
+    pbi_pc = mean(pbi_per_capita, na.rm = TRUE),
+    gini = mean(gini, na.rm = TRUE),
+    crimen = mean(tasa_criminalidad, na.rm = TRUE),
+    hdi = mean(hdi, na.rm = TRUE)
+  )
+
+```
+
+
+```{r}
+# Distribuciones
+
+df_reg %>%
+  ggplot(aes(pbi_per_capita, fill = pais)) +
+  geom_density(alpha = 0.4) +
+  scale_x_continuous(labels = dollar_format()) +
+  theme_minimal()
+
+```
+
+# Análisis bivariado
+
+Ahora análisis bivariado de mipymes y otras variables
+
+```{r}
+#MIPYMES y pib pc
+
+ggplot(df_reg, aes(ent_per_1000, pbi_per_capita, color = pais)) +
+  geom_point(alpha = 0.7) +
+  geom_smooth(method = "loess", se = FALSE) +
+  theme_minimal() +
+  labs(
+    x = "Empresas por 1.000 hab.",
+    y = "PIB per cápita"
+  )
+
+```
+
+```{r}
+# Empleo en mipymes y desigualdad
+ggplot(df_reg, aes(tasa_empleo_pyme, gini, color = pais)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE) +
+  theme_minimal()
+
+```
+
+```{r}
+# ratio micro no micro y criminalidad
+
+ggplot(df_reg, aes(ratio_micro_no_micro, tasa_criminalidad, color = pais)) +
+  geom_point() +
+  geom_smooth(method = "loess", se = FALSE) +
+  scale_x_log10() +
+  theme_minimal()
+
+#log en el ratio?
+```
+
+
+# Boxplots por cuartiles de presencia de MIPYMES
+
+```{r}
+
+#Hago cuartiles que representen niveles de presencia de MIPYMES
+df_reg <- df_reg %>%
+  mutate(
+    q_mipyme = ntile(ent_per_1000, 4) %>% factor(
+      labels = c("Baja", "Media-baja", "Media-alta", "Alta")
+    )
+  )
+
+```
+
+
+```{r}
+# PIB pc
+ggplot(df_reg, aes(q_mipyme, pbi_per_capita, fill = pais)) +
+  geom_boxplot(alpha = 0.6) +
+  theme_minimal() +
+  labs(x = "Presencia de MIPYMES", y = "PIB per cápita")
+
+```
+
+```{r}
+# gini
+
+ggplot(df_reg, aes(q_mipyme, gini, fill = pais)) +
+  geom_boxplot(alpha = 0.6) +
+  theme_minimal()
+
+
+#revisar tema no linealidad
+```
+
+capaz ver con otras var
+
+# Estandarizacion de variables
+
+```{r}
+
+# z-score, para pca y clusters
+
+vars_std <- c(
+  "ent_per_1000", "peso_micro", "ratio_micro_no_micro",
+  "pbi_per_capita", "gini", "hdi",
+  "tasa_criminalidad", "densidad_pobl"
+)
+
+df_std <- df_reg %>%
+  mutate(across(all_of(vars_std), scale))
+
+```
+
+```{r}
+# min-max
+
+df_mm <- df_reg %>%
+  mutate(across(all_of(vars_std), ~ rescale(.)))
+
+#queremos hacer indices descriptivos?
+
+```
+
+# Comparacion de medias y PCA
+
+```{r}
+pca_data <- df_std %>%
+  select(all_of(vars_std)) %>%
+  drop_na()
+
+pca <- PCA(pca_data, scale.unit = FALSE, graph = FALSE)
+
+```
+
+
+```{r}
+fviz_pca_biplot(
+  pca,
+  habillage = df_reg$pais,
+  addEllipses = TRUE,
+  repel = TRUE
+)
+
+```
+
+Nota de ia: 
+Interpretación típica:
+
+PC1 = desarrollo socioeconómico
+PC2 = estructura productiva MIPYME
+
+
+```{r}
+# Comparacion de medias por pais
+df_reg %>%
+  group_by(pais) %>%
+  summarise(across(all_of(vars_std), mean, na.rm = TRUE))
+
+```
+
+
+# Clustering
+
+```{r}
+#determinar num de clusters
+
+fviz_nbclust(pca_data, kmeans, method = "silhouette")
+
+```
+
+```{r}
+set.seed(123)
+
+clust <- kmeans(pca_data, centers = 4, nstart = 25) #aca usa k 4
+
+df_reg$cluster <- factor(clust$cluster)
+
+```
+
+```{r}
+ggplot(df_reg, aes(PC1, PC2, color = cluster, shape = pais)) +
+  geom_point(size = 3) +
+  theme_minimal()
+
+```
+
+queremos ver tipologias regionales: tipo region alta pymes y alto des, alta pymes sbajo des...
+
+# Graficos tipo radar o telaraña
+
+```{r}
+
+vars_radar <- c(
+  "ent_per_1000",
+  "tasa_empleo_pyme",
+  "pbi_per_capita",
+  "gini",
+  "tasa_pobreza",
+  "tasa_criminalidad"
+)
+
+#min max y valores más altos = mejor situación
+# es decir: valores normalizados (0–1), mayor valor indica mejor desempeño
+df_radar <- df_reg %>%
+  select(pais, region, all_of(vars_radar)) %>%
+  mutate(
+    gini = -gini,
+    tasa_pobreza = -tasa_pobreza,
+    tasa_criminalidad = -tasa_criminalidad
+  ) %>%
+  mutate(across(all_of(vars_radar), ~ rescale(.)))
+
+```
+
+```{r}
+
+# regiones modelo o lideres
+reg_modelo <- df_radar %>%
+  filter(region %in% c(
+    "Lombardia", "Emilia-Romagna",
+    "Cataluña", "País Vasco"
+  ))
+
+# esto dsps revisar: lo de clusters y lode los cuartiles
+
+```
+
+
+```{r}
+
+library(ggradar)
+
+radar_data <- reg_modelo %>%
+  select(region, all_of(vars_radar))
+
+
+```
+
+```{r}
+ggradar(
+  radar_data,
+  grid.min = 0,
+  grid.mid = 0.5,
+  grid.max = 1,
+  group.colours = c("steelblue", "darkgreen", "firebrick", "goldenrod"),
+  axis.label.size = 3,
+  grid.label.size = 3,
+  legend.position = "bottom"
+)
+
+```
+
+Los graficos radar nos sirve para ver si las regiones que nos quedan que son "buenas" presentan perfiles productivos y sociales/socioeconomicos similares.
+
+
+Podemos hacer tambien radar por pais
+
+```{r}
+radar_pais <- df_radar %>%
+  group_by(pais) %>%
+  summarise(across(all_of(vars_radar), mean, na.rm = TRUE)) %>%
+  rename(group = pais)
+
+```
+
+
+```{r}
+ggradar(
+  radar_pais,
+  group.colours = c("steelblue", "firebrick"),
+  legend.position = "bottom"
+)
+
+```
+
+
+Mexclo radar con lo de cluster
+
+```{r}
+radar_cluster <- df_radar %>%
+  left_join(df_reg %>% select(region, cluster), by = "region") %>%
+  group_by(cluster) %>%
+  summarise(across(all_of(vars_radar), mean, na.rm = TRUE)) %>%
+  rename(group = cluster)
+
+```
+
+```{r}
+ggradar(
+  radar_cluster,
+  legend.position = "bottom"
+)
+
+```
+
+aca podria caracterizar los clusters, ver como les va, y hacer tipologias mas completas
