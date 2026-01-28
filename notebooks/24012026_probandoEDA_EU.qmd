@@ -66,6 +66,8 @@ df_eu <- df_eu |>
 df_eu |> 
   group_by(pais) |> 
   skim()
+
+names(df_eu)
 ```
 
 Recordar que tenemos las variables siguientes:
@@ -173,9 +175,6 @@ ggplot(df_cuadrantes, aes(x = ent_per_1000, y = pbi_per_capita, color = patron))
 
 # misma graf de antes pero por tramos
 
-library(ggplot2)
-library(dplyr)
-library(tidyr)
 
 # Definimos los tramos que queremos comparar
 tramos_interes <- c("0", "1 a 9", "+10")
@@ -216,8 +215,6 @@ ggplot(df_cuadrantes, aes(x = ent_per_1000, y = pbi_per_capita, color = patron))
 
 
 ```{r}
-library(ggplot2)
-library(dplyr)
 library(ggrepel)
 
 # mismo graf que antes pero con etiquetas para las regiones en el cuadrante q nos interesa
