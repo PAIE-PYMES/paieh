@@ -1,4 +1,4 @@
-anio,id_region,region,renta_media_hogar,renta_media_hogar_unidad,pbi_per_capita,pbi_per_capita_unidad,densidad_pobl,densidad_pobl_unidad,poblacion_total,poblacion_total_unidad,tasa_criminalidad,tasa_criminalidad_unidad,tasa_pobreza,tasa_pobreza_unidad,hdi,hdi_unidad
+anio,id_region,region,renta_media_hogar,renta_media_hogar_unidad,pbi_per_capita,pbi_per_capita_unidad,densidad_pobl,densidad_pobl_unidad,pobl_total,pobl_total_unidad,tasa_criminalidad,tasa_criminalidad_unidad,tasa_pobreza,tasa_pobreza_unidad,hdi,hdi_unidad
 2008-01-01,ITC1,Piemonte,22700,EUR_HAB,29400,EUR_HAB,174.7,PER_KM2,NA,NA,0.6,P_HTHAB,12.1,PC,0.888,Indice
 2008-01-01,ITC1,Piemonte,22700,EUR_HAB,29400,EUR_HAB,174.7,PER_KM2,NA,NA,129.64,P_HTHAB,12.1,PC,0.888,Indice
 2008-01-01,ITC1,Piemonte,22700,EUR_HAB,29400,EUR_HAB,174.7,PER_KM2,NA,NA,NA,P_HTHAB,12.1,PC,0.888,Indice
