@@ -44,76 +44,105 @@ df_eu <- bind_rows(
   select(-pais.x, -pais.y, -poblacion_total, -pobl_total)
 
 ```
- 
-Agrego indicadores relativos de cantidad de empresas:
+
+## Calculo algunos indicadores sobre MIPYMES -  Base año-region
+
+Agrego indicadores relativos de cantidad de empresas y empleo:
 
 ```{r}
-# Indicadores Relativos 
+# Indicadores Relativos a la pob
 df_eu <- df_eu |>
   mutate(
     ent_per_1000 = (ent_nr / poblacion) * 1000, #(empresas por cada 1000 habitantes)
-    tasa_empleo_pyme = (emp_nr / poblacion) * 100 #(empleados por cada 100 habitantes)
+    tasa_empleo = (emp_nr / poblacion) * 100 #(empleados por cada 100 habitantes) 
+    #tecnicamente no es la tasa de empleo comun pq seria sobre la PET en vez de sobre la poblacion
+    # pero era mas facil nombrarla tasa empleo nomas
   )
 
 ```
 
-Reviso la estructura de los datos
+
+Agrego algunos indicadores de peso mipymes
 
 ```{r}
-#| label: res_data
-# Resumen
-df_eu |> 
-  group_by(pais) |> 
-  skim()
+# Hago df con variables de peso de las MIPYMES
 
-names(df_eu)
+# Peso MIPYME según número de empresas
+df_peso_ent <- df_eu %>%
+  filter(tramo != "TOTAL") %>%
+  group_by(pais, id_region, region, anio, tramo) %>%
+  summarise(ent = sum(ent_nr, na.rm = TRUE), .groups = "drop") %>%
+  pivot_wider(names_from = tramo, values_from = ent, values_fill = 0) %>%
+  rename(
+    ent_0        = `0`,
+    ent_micro    = `1 a 9`,
+    ent_no_micro = `+10`
+  ) %>%
+  mutate(
+    ent_con_empleo = ent_micro + ent_no_micro,
+    peso_micro = ent_micro / ent_con_empleo,
+    ratio_micro_no_micro = ent_micro / ent_no_micro,
+    peso_autoempleo = ent_0 / (ent_0 + ent_con_empleo)
+  ) %>%
+  select(pais, id_region, region, anio,
+         peso_micro, ratio_micro_no_micro, peso_autoempleo)
+
+
+# Peso MIPYME segun numero de empleados
+
+df_peso_emp <- df_eu %>%
+  filter(tramo != "TOTAL") %>%
+  group_by(pais, id_region, region, anio, tramo) %>%
+  summarise(emp = sum(emp_nr, na.rm = TRUE), .groups = "drop") %>%
+  pivot_wider(names_from = tramo, values_from = emp, values_fill = 0) %>%
+  rename(
+    emp_0        = `0`,
+    emp_micro    = `1 a 9`,
+    emp_no_micro = `+10`
+  ) %>%
+  mutate(
+    emp_con_empleo = emp_micro + emp_no_micro,
+    peso_emp_micro = emp_micro / emp_con_empleo,
+    ratio_emp_micro_no_micro = emp_micro / emp_no_micro,
+    peso_autoempleo_emp = emp_0 / (emp_0 + emp_con_empleo)
+  ) %>%
+  select(pais, id_region, region, anio,
+         peso_emp_micro, ratio_emp_micro_no_micro, peso_autoempleo_emp)
+
+# uno a la base
+df_eu <- df_eu %>%
+  left_join(df_peso_ent,
+            by = c("pais", "id_region", "region", "anio")) %>%
+  left_join(df_peso_emp,
+            by = c("pais", "id_region", "region", "anio"))
+
 ```
 
-Usamos promedio de las variables por region
+## Base de promedios por region 
+
+Selecciono algunas variables y usamos promedio de las variables por region
 
 ```{r}
-# Hago promedio por region asi es mejor el analisis (porque tenemos muchos años)
+# Hago promedio de las variables por region asi es mejor el analisis (porque tenemos muchos años)
+# antes teniamos valores año region
+# Ahora armo otra base de promedios por region con las variables q voy a usar
+
 df_reg <- df_eu %>%
   group_by(pais, id_region, region) %>%
   summarise(
     across(
       c(renta_media_hogar, pbi_per_capita, gini, hdi,
         tasa_criminalidad, tasa_homicidios, tasa_pobreza,
-        densidad_pobl, ent_per_1000, tasa_empleo_pyme),
+        densidad_pobl, ent_per_1000, tasa_empleo,
+        peso_micro, ratio_micro_no_micro, peso_autoempleo,
+        peso_emp_micro, ratio_emp_micro_no_micro, peso_autoempleo_emp),
       mean, na.rm = TRUE
     ),
     .groups = "drop"
   )
-```
-
-Agrego algunos indicadores de peso pymes
-
-```{r}
-df_mipyme <- df_eu %>%
-  filter(tramo != "TOTAL") %>%
-  group_by(pais, id_region, region, tramo) %>%
-  summarise(ent = sum(ent_nr, na.rm = TRUE), .groups = "drop") %>%
-  pivot_wider(names_from = tramo, values_from = ent, values_fill = 0) %>%
-  rename(
-    ent_0 = `0`, # que hacenos con esto? autoempleo?
-    ent_micro = `1 a 9`,
-    ent_no_micro = `+10` #aca hay grandes pero tmb medianas
-  ) %>%
-  mutate(
-    ent_total = ent_micro + ent_no_micro, #capaz agregar las de 0, o usar directamente el TOTAL
-    # este total implicaria que al menos tengan un empleado
-    peso_micro = ent_micro / ent_total, 
-    ratio_micro_no_micro = ent_micro / ent_no_micro,
-    # Autoempleo como indicador separado
-    peso_autoempleo = ent_0 / (ent_0 + ent_total)
-  )
-
-df_reg <- df_reg %>%
-  left_join(df_mipyme, by = c("pais", "id_region", "region"))
 
 
 ```
-
 
 # Análisis descriptivo de las variables socioeconómicas
 
@@ -131,7 +160,7 @@ df_reg %>%
     hdi = mean(hdi, na.rm = TRUE)
   )
 
-# q onda crimen
+# q onda crimen en italia? revisar
 
 ```
 

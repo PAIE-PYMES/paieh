@@ -64,7 +64,7 @@ main <- function() {
   list(id="nama_10r_3gdp", var_name="pbi_per_capita", more_filters=list(unit="EUR_HAB")),
   list(id="demo_r_d3dens", var_name="densidad_pobl"),
   # POBLACION total deje la de eurostat
-  list(id="demo_r_pjangrp3", var_name="poblacion_total", more_filters=list(unit="NR", sex="T", age="TOTAL")),
+  list(id="demo_r_pjangrp3", var_name="pobl_total", more_filters=list(unit="NR", sex="T", age="TOTAL")),
   # lo mismo con tasa de criminalidad:
   list(id="crim_gen_reg", var_name= "tasa_criminalidad", more_filters=list(unit="P_HTHAB")),
   # Tasa de riesgo de pobreza regional (EU-SILC, sin alquiler imputado) - esto tmb esta para es - mas comparable
