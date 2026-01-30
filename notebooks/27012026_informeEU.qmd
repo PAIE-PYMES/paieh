@@ -31,17 +31,21 @@ es_control  <- read_csv(here("data","processed","variables","es", "control.csv")
 ita_pymes <- read_csv(here("data","processed","variables","it", "pymes.csv"))
 es_pymes  <- read_csv(here("data","processed","variables","es", "pymes.csv"))
 
-# Unimos 
+#unimos 
 df_eu <- bind_rows(
-  ita_control |> inner_join(ita_pymes, by = c("region", "anio")),
-  es_control  |> inner_join(es_pymes, by = c("region", "anio"))
-) |>
-# Limpieza y Unificación de población
-  mutate(
-    pais = coalesce(pais.x, pais.y),
-    poblacion = coalesce(poblacion_total, pobl_total)
-  ) |>
-  select(-pais.x, -pais.y, -poblacion_total, -pobl_total)
+  ita_control |>
+    select(-matches("^pais$")) |>   
+    inner_join(ita_pymes |> select(-matches("^pais$")),
+               by = c("region", "anio")) |>
+    mutate(pais = "Italia"),
+
+  es_control |>
+    select(-matches("^pais$")) |>
+    inner_join(es_pymes |> select(-matches("^pais$")),
+               by = c("region", "anio")) |>
+    mutate(pais = "España")
+)
+
 
 ```
 
@@ -53,8 +57,8 @@ Agrego indicadores relativos de cantidad de empresas y empleo:
 # Indicadores Relativos a la pob
 df_eu <- df_eu |>
   mutate(
-    ent_per_1000 = (ent_nr / poblacion) * 1000, #(empresas por cada 1000 habitantes)
-    tasa_empleo = (emp_nr / poblacion) * 100 #(empleados por cada 100 habitantes) 
+    ent_per_1000 = (ent_nr / pobl_total) * 1000, #(empresas por cada 1000 habitantes)
+    tasa_empleo = (emp_nr / pobl_total) * 100 #(empleados por cada 100 habitantes) 
     #tecnicamente no es la tasa de empleo comun pq seria sobre la PET en vez de sobre la poblacion
     # pero era mas facil nombrarla tasa empleo nomas
   )
@@ -125,18 +129,22 @@ Selecciono algunas variables y usamos promedio de las variables por region
 ```{r}
 # Hago promedio de las variables por region asi es mejor el analisis (porque tenemos muchos años)
 # antes teniamos valores año region
-# Ahora armo otra base de promedios por region con las variables q voy a usar
+# Ahora armo otra base de promedios por region-tramo con las variables q voy a usar
 
 df_reg <- df_eu %>%
-  group_by(pais, id_region, region) %>%
+  group_by(pais, id_region, region, tramo) %>%
   summarise(
     across(
-      c(renta_media_hogar, pbi_per_capita, gini, hdi,
+      c(
+        renta_media_hogar, pbi_per_capita, gini, hdi,
         tasa_criminalidad, tasa_homicidios, tasa_pobreza,
         densidad_pobl, ent_per_1000, tasa_empleo,
+        ent_nr, emp_nr,
         peso_micro, ratio_micro_no_micro, peso_autoempleo,
-        peso_emp_micro, ratio_emp_micro_no_micro, peso_autoempleo_emp),
-      mean, na.rm = TRUE
+        peso_emp_micro, ratio_emp_micro_no_micro, peso_autoempleo_emp
+      ),
+      mean,
+      na.rm = TRUE
     ),
     .groups = "drop"
   )
@@ -151,7 +159,7 @@ Capaz se pone mas adelante
 
 ```{r}
 # Tablas resumen por país
-df_reg %>%
+df_eu %>%
   group_by(pais) %>%
   summarise(
     pbi_pc = mean(pbi_per_capita, na.rm = TRUE),
@@ -160,7 +168,8 @@ df_reg %>%
     hdi = mean(hdi, na.rm = TRUE)
   )
 
-# q onda crimen en italia? revisar
+
+# habria q ver otras
 
 ```
 
@@ -168,40 +177,123 @@ df_reg %>%
 ```{r}
 # Distribuciones
 
+df_eu %>%
+  ggplot(aes(pbi_per_capita, fill = pais)) +
+  geom_density(alpha = 0.4) +
+  scale_x_continuous(labels = dollar_format()) +
+  theme_minimal()
+
+df_eu %>%
+  ggplot(aes(log(ent_nr), fill = tramo)) +
+  geom_density(alpha = 0.4) +
+  theme_minimal()
+# no se si esta graf tiene sentido, creo q si
+
+df_eu |>
+  filter(tramo != "TOTAL") |>
+  ggplot(aes(log(ent_nr), fill = tramo)) +
+  geom_density(alpha = 0.4) +
+  facet_wrap(~ pais)
+
+
+```
+Pocas empresas grandes y/o medianas, mucho autoempleo
+
+```{r}
+# distribuciones con la base de medias
+
 df_reg %>%
   ggplot(aes(pbi_per_capita, fill = pais)) +
   geom_density(alpha = 0.4) +
   scale_x_continuous(labels = dollar_format()) +
   theme_minimal()
 
+df_reg %>%
+  ggplot(aes(log(ent_nr), fill = tramo)) +
+  geom_density(alpha = 0.4) +
+  theme_minimal()
+# no se si esta graf tiene sentido, creo q si
 
+df_reg |>
+  filter(tramo != "TOTAL") |>
+  ggplot(aes(log(ent_nr), fill = tramo)) +
+  geom_density(alpha = 0.4) +
+  facet_wrap(~ pais)
 ```
+
 
 # Análisis bivariado
 
 Ahora análisis bivariado de mipymes y otras variables
 
 ```{r}
-#empresas y pib pc
+library(ggpubr)
 
-# ent per 1000 era todas?
+#voy a etiquetar las alto peso alto pib
+# umbrales
+pbi_q75  <- quantile(df_reg$pbi_per_capita, 0.75, na.rm = TRUE)
+micro_q75 <- quantile(df_reg$peso_emp_micro, 0.75, na.rm = TRUE)
 
-ggplot(df_reg, aes(ent_per_1000, pbi_per_capita, color = pais)) +
+df_reg <- df_reg %>%
+  mutate(
+    high_high_emp_micro =
+      pbi_per_capita >= pbi_q75 &
+      peso_emp_micro >= micro_q75
+  )
+
+
+#empleo en micrompresas y pib pc
+
+ggplot(df_reg, aes(peso_emp_micro, pbi_per_capita, color = pais)) +
   geom_point(alpha = 0.7) +
   geom_smooth(method = "loess", se = FALSE) +
+  geom_text_repel(
+    data = df_reg %>% filter(high_high_emp_micro),
+    aes(label = region),
+    size = 3,
+    max.overlaps = 15
+  ) +
   theme_minimal() +
   labs(
-    x = "Empresas por 1.000 hab.",
+    x = "Peso del empleo en microempresas",
     y = "PIB per cápita"
   )
 
+df_reg <- df_reg %>%
+  mutate(
+    high_high_ent_micro =
+      pbi_per_capita >= pbi_q75 &
+      peso_micro >= micro_q75
+ )
+
+# peso en cant de microempresas y pibpc
+ggplot(df_reg, aes(peso_emp_micro, pbi_per_capita, color = pais)) +
+  geom_point(alpha = 0.7) +
+  geom_smooth(method = "loess", se = FALSE) +
+  geom_text_repel(
+    data = df_reg %>% filter(high_high_ent_micro),
+    aes(label = region),
+    size = 3,
+    max.overlaps = 15
+  ) +
+  theme_minimal() +
+  labs(
+    x = "Peso de microempresas",
+    y = "PIB per cápita"
+  )
+
+
 ```
+
+peso_emp_micro = emp_micro / emp_con_empleo
+
+o sea que a mayor proporcion de empleados en micro peor el pib?
 
 ```{r}
 # Empleo en mipymes y desigualdad
  #revisar como construi tasa empleo
 
-ggplot(df_reg, aes(tasa_empleo_pyme, gini, color = pais)) +
+ggplot(df_reg, aes(tasa_empleo, gini, color = pais)) +
   geom_point() +
   geom_smooth(method = "lm", se = FALSE) +
   theme_minimal()
