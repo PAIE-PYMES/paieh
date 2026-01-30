@@ -66,7 +66,7 @@ main <- function() {
   # POBLACION total deje la de eurostat
   list(id="demo_r_pjangrp3", var_name="pobl_total", more_filters=list(unit="NR", sex="T", age="TOTAL")),
   # lo mismo con tasa de homicidios:
-  list(id = "crim_gen_reg", var_name = "tasa_homicidios", more_filters = list(unit = "P_HTHAB", iccs = "0101")),
+  list(id = "crim_gen_reg", var_name = "tasa_homicidios", more_filters = list(unit = "P_HTHAB", iccs = "ICCS0101")),
   # Tasa de riesgo de pobreza regional (EU-SILC, sin alquiler imputado) - esto tmb esta para es - mas comparable
   #no encontre equivalente en istat a la tasa con alquiler imputado de ine españa
   list(id="ilc_li41", var_name="tasa_pobreza", more_filters=list(unit="PC"))
