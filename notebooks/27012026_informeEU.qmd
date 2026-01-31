@@ -74,7 +74,7 @@ Agrego algunos indicadores de peso mipymes
 # Peso MIPYME según número de empresas
 df_peso_ent <- df_eu %>%
   filter(tramo != "TOTAL") %>%
-  group_by(pais, id_region, region, anio, tramo) %>%
+  group_by(pais, id_region, region, anio, pobl_total, tramo) %>%
   summarise(ent = sum(ent_nr, na.rm = TRUE), .groups = "drop") %>%
   pivot_wider(names_from = tramo, values_from = ent, values_fill = 0) %>%
   rename(
@@ -84,19 +84,24 @@ df_peso_ent <- df_eu %>%
   ) %>%
   mutate(
     ent_con_empleo = ent_micro + ent_no_micro,
+    # estructura
     peso_micro = ent_micro / ent_con_empleo,
     ratio_micro_no_micro = ent_micro / ent_no_micro,
-    peso_autoempleo = ent_0 / (ent_0 + ent_con_empleo)
+    peso_autoempleo = ent_0 / (ent_0 + ent_con_empleo),
+    # densidad de microempresas
+    micro_per_1000 = (ent_micro / pobl_total) * 1000
   ) %>%
-  select(pais, id_region, region, anio,
-         peso_micro, ratio_micro_no_micro, peso_autoempleo)
+  select(
+    pais, id_region, region, anio,
+    peso_micro, ratio_micro_no_micro, peso_autoempleo,
+    micro_per_1000
+  )
 
 
-# Peso MIPYME segun numero de empleados
-
+# Peso MIPYME según número de empleados
 df_peso_emp <- df_eu %>%
   filter(tramo != "TOTAL") %>%
-  group_by(pais, id_region, region, anio, tramo) %>%
+  group_by(pais, id_region, region, anio, pobl_total, tramo) %>%
   summarise(emp = sum(emp_nr, na.rm = TRUE), .groups = "drop") %>%
   pivot_wider(names_from = tramo, values_from = emp, values_fill = 0) %>%
   rename(
@@ -106,12 +111,19 @@ df_peso_emp <- df_eu %>%
   ) %>%
   mutate(
     emp_con_empleo = emp_micro + emp_no_micro,
+    # estructura
     peso_emp_micro = emp_micro / emp_con_empleo,
     ratio_emp_micro_no_micro = emp_micro / emp_no_micro,
-    peso_autoempleo_emp = emp_0 / (emp_0 + emp_con_empleo)
+    peso_autoempleo_emp = emp_0 / (emp_0 + emp_con_empleo),
+    # empleo micro por habitante
+    emp_micro_per_1000 = (emp_micro / pobl_total) * 1000
   ) %>%
-  select(pais, id_region, region, anio,
-         peso_emp_micro, ratio_emp_micro_no_micro, peso_autoempleo_emp)
+  select(
+    pais, id_region, region, anio,
+    peso_emp_micro, ratio_emp_micro_no_micro,
+    peso_autoempleo_emp, emp_micro_per_1000
+  )
+
 
 # uno a la base
 df_eu <- df_eu %>%
@@ -119,6 +131,7 @@ df_eu <- df_eu %>%
             by = c("pais", "id_region", "region", "anio")) %>%
   left_join(df_peso_emp,
             by = c("pais", "id_region", "region", "anio"))
+
 
 ```
 
@@ -141,7 +154,8 @@ df_reg <- df_eu %>%
         densidad_pobl, ent_per_1000, tasa_empleo,
         ent_nr, emp_nr,
         peso_micro, ratio_micro_no_micro, peso_autoempleo,
-        peso_emp_micro, ratio_emp_micro_no_micro, peso_autoempleo_emp
+        peso_emp_micro, ratio_emp_micro_no_micro, peso_autoempleo_emp,
+        emp_micro_per_1000, micro_per_1000
       ),
       mean,
       na.rm = TRUE
@@ -164,12 +178,13 @@ df_eu %>%
   summarise(
     pbi_pc = mean(pbi_per_capita, na.rm = TRUE),
     gini = mean(gini, na.rm = TRUE),
-    crimen = mean(tasa_criminalidad, na.rm = TRUE),
-    hdi = mean(hdi, na.rm = TRUE)
+    homicidios = mean(tasa_homicidios, na.rm = TRUE),
+    hdi = mean(hdi, na.rm = TRUE),
+    pobreza = mean(tasa_pobreza, na.rm= TRUE),
+    ingresos = mean(renta_media_hogar, na.rm = TRUE)
   )
 
 
-# habria q ver otras
 
 ```
 
@@ -221,26 +236,39 @@ df_reg |>
   facet_wrap(~ pais)
 ```
 
-
 # Análisis bivariado
 
 Ahora análisis bivariado de mipymes y otras variables
 
 ```{r}
-library(ggpubr)
+library(ggrepel)
 
-#voy a etiquetar las alto peso alto pib
+#voy a etiquetar las alto peso alto pib, AUNQ CApaz 75 es mucho
 # umbrales
-pbi_q75  <- quantile(df_reg$pbi_per_capita, 0.75, na.rm = TRUE)
-micro_q75 <- quantile(df_reg$peso_emp_micro, 0.75, na.rm = TRUE)
+df_reg <- df_reg %>%
+  group_by(pais) %>%
+  mutate(
+    pbi_q75 = quantile(pbi_per_capita, 0.75, na.rm = TRUE),
+    microemp_q75 = quantile(peso_emp_micro, 0.75, na.rm = TRUE),
+    micronum_q75 = quantile(peso_micro, 0.75, na.rm = TRUE)
+  ) %>%
+  ungroup()
 
+# alto pib alto empleo en micro
 df_reg <- df_reg %>%
   mutate(
     high_high_emp_micro =
       pbi_per_capita >= pbi_q75 &
-      peso_emp_micro >= micro_q75
+      peso_emp_micro >= microemp_q75
   )
 
+# alto pib alta cantidad micro
+df_reg <- df_reg %>%
+  mutate(
+    high_high_num_micro =
+      pbi_per_capita >= pbi_q75 &
+      peso_micro >= micronum_q75
+  )
 
 #empleo en micrompresas y pib pc
 
@@ -259,41 +287,34 @@ ggplot(df_reg, aes(peso_emp_micro, pbi_per_capita, color = pais)) +
     y = "PIB per cápita"
   )
 
-df_reg <- df_reg %>%
-  mutate(
-    high_high_ent_micro =
-      pbi_per_capita >= pbi_q75 &
-      peso_micro >= micro_q75
- )
-
 # peso en cant de microempresas y pibpc
-ggplot(df_reg, aes(peso_emp_micro, pbi_per_capita, color = pais)) +
+ggplot(df_reg, aes(peso_micro, pbi_per_capita, color = pais)) +
   geom_point(alpha = 0.7) +
   geom_smooth(method = "loess", se = FALSE) +
   geom_text_repel(
-    data = df_reg %>% filter(high_high_ent_micro),
+    data = df_reg %>% filter(high_high_num_micro),
     aes(label = region),
     size = 3,
     max.overlaps = 15
   ) +
   theme_minimal() +
   labs(
-    x = "Peso de microempresas",
+    x = "Peso del número de microempresas",
     y = "PIB per cápita"
   )
+
 
 
 ```
 
 peso_emp_micro = emp_micro / emp_con_empleo
 
-o sea que a mayor proporcion de empleados en micro peor el pib?
+o sea que a mayor proporcion de empleados en micro peor el pib, salvo en regiones lider coso
 
 ```{r}
 # Empleo en mipymes y desigualdad
- #revisar como construi tasa empleo
 
-ggplot(df_reg, aes(tasa_empleo, gini, color = pais)) +
+ggplot(df_reg, aes(peso_emp_micro, gini, color = pais)) +
   geom_point() +
   geom_smooth(method = "lm", se = FALSE) +
   theme_minimal()
@@ -317,16 +338,13 @@ ggplot(df_reg, aes(ratio_micro_no_micro, tasa_criminalidad, color = pais)) +
 
 ```{r}
 
-#Hago cuartiles que representen niveles de presencia de MIPYMES
+#Hago cuartiles que representen niveles de peso de MIPYMES
 df_reg <- df_reg %>%
   mutate(
-    q_mipyme = ntile(ent_per_1000, 4) %>% factor(
-      labels = c("Baja", "Media-baja", "Media-alta", "Alta")
+    q_mipyme = ntile(peso_micro, 4) %>% factor(
+      labels = c("Bajo", "Medio-bajo", "Medio-alto", "Alto")
     )
   )
-
-# me falta algo: filtrar las chicas
-# creo que df_reg tiene tODAS las empresas
 
 ```
 
@@ -336,7 +354,7 @@ df_reg <- df_reg %>%
 ggplot(df_reg, aes(q_mipyme, pbi_per_capita, fill = pais)) +
   geom_boxplot(alpha = 0.6) +
   theme_minimal() +
-  labs(x = "Presencia de MIPYMES", y = "PIB per cápita")
+  labs(x = "Peso de MIPYMES", y = "PIB per cápita")
 
 ```
 
@@ -348,7 +366,22 @@ ggplot(df_reg, aes(q_mipyme, gini, fill = pais)) +
   theme_minimal()
 ```
 
-capaz ver con otras var
+
+```{r}
+# crimen
+
+ggplot(df_reg, aes(q_mipyme, tasa_homicidios, fill = pais)) +
+  geom_boxplot(alpha = 0.6) +
+  theme_minimal()
+```
+
+```{r}
+# pobreza
+
+ggplot(df_reg, aes(q_mipyme, tasa_pobreza, fill = pais)) +
+  geom_boxplot(alpha = 0.6) +
+  theme_minimal()
+```
 
 # Estandarizacion de variables
 
@@ -357,12 +390,14 @@ capaz ver con otras var
 # z-score, para pca y clusters
 
 vars_std <- c(
-  "ent_per_1000", "peso_micro", "ratio_micro_no_micro",
-  "pbi_per_capita", "hdi",
-  "tasa_criminalidad", "densidad_pobl"
+"renta_media_hogar", "pbi_per_capita", "hdi", "tasa_homicidios","tasa_pobreza", "densidad_pobl",
+  "peso_micro", "ratio_micro_no_micro", "peso_autoempleo",
+  "peso_emp_micro", "ratio_emp_micro_no_micro", "peso_autoempleo_emp",
+   "emp_micro_per_1000", "micro_per_1000"
 )
 
-#no puse gini pq italia no lo tiene
+#no puse gini pq ni tasa criminalidad pq italia no lo tiene
+
 
 df_std <- df_reg %>%
   mutate(across(all_of(vars_std), ~ as.numeric(scale(.))))
@@ -376,45 +411,26 @@ df_std <- df_reg %>%
 df_mm <- df_reg %>%
   mutate(across(all_of(vars_std), ~ rescale(.)))
 
-#queremos hacer indices descriptivos?
+# sirve si hacemos indicadores desc
 
 ```
-
-
-#comparo medias
 
 ```{r}
-# Comparacion de medias por pais
-df_reg %>%
-  group_by(pais) %>%
-  summarise(across(all_of(vars_std), mean, na.rm = TRUE))
-
-```
-
-
 # PCA y Clustering
-
-```{r}
 
 pca_df <- df_std %>%
   select(pais, region, all_of(vars_std)) %>%
   drop_na()
 
-```
-
-```{r}
 pca_data <- pca_df %>%
   select(all_of(vars_std)) %>%
   as.data.frame()
 
 pca <- PCA(pca_data, scale.unit = FALSE, graph = FALSE)
 
-
 pca$var$coord # veo que variables pesan mas
 
 pca$eig
-
-
 ```
 
 ```{r}
@@ -430,13 +446,13 @@ pca_df <- bind_cols(pca_df, scores)
 ```{r}
 #determinar num de clusters
 fviz_nbclust(
-  pca_data,
+  pca_data, #con esto me da k 2
   kmeans,
   method = "silhouette"
 )
 
 fviz_nbclust(
-  pca_df[, c("PC1", "PC2")],
+  pca_df[, c("PC1", "PC2")], # con esto me da k 9???
   kmeans,
   method = "silhouette"
 )
@@ -450,7 +466,7 @@ set.seed(123)
 
 clust <- kmeans(
   pca_df[, c("PC1", "PC2")],
-  centers = 4, #uso 4 pq no me importo lo anterior
+  centers = 4, #uso 4 pq ni idea
   nstart = 25
 )
 
@@ -492,12 +508,15 @@ pca_df %>%
 ```{r}
 
 vars_radar <- c(
-  "ent_per_1000",
-  "tasa_empleo_pyme",
-  "pbi_per_capita",
+  "hdi", #esperanza de vida, educacion y pib pc
   "tasa_pobreza",
-  "tasa_criminalidad"
+  "tasa_homicidios",
+  "peso_micro",
+  "peso_emp_micro",
+  "ratio_emp_micro_no_micro",
+  "renta_media_hogar"
 )
+
 
 #min max y valores más altos = mejor situación
 # es decir: valores normalizados (0–1), mayor valor indica mejor desempeño
@@ -505,7 +524,7 @@ df_radar <- df_reg %>%
   select(pais, region, all_of(vars_radar)) %>%
   mutate(
     tasa_pobreza = -tasa_pobreza,
-    tasa_criminalidad = -tasa_criminalidad
+    tasa_criminalidad = -tasa_homicidios
   ) %>%
   mutate(across(all_of(vars_radar), ~ rescale(.)))
 
@@ -520,8 +539,7 @@ reg_modelo <- df_radar %>%
     "Cataluña", "País Vasco"
   ))
 
-# esto dsps revisar: lo de clusters y lode los cuartiles
-
+# agarre unas regiones, hay q elegirlas segun cuales nos dan bien
 ```
 
 
@@ -552,6 +570,9 @@ ggradar(
 
 Los graficos radar nos sirve para ver si las regiones que nos quedan que son "buenas" presentan perfiles productivos y sociales/socioeconomicos similares.
 
+Parece q si son similares
+
+(usando los indicadores per 1000 cambiaba un poco, supongo q tiene sentido por dif pob)
 
 Podemos hacer tambien radar por pais
 
@@ -572,13 +593,13 @@ ggradar(
 )
 
 ```
-
+well los paises son parecidos
 
 Mexclo radar con lo de cluster
 
 ```{r}
 radar_cluster <- df_radar %>%
-  left_join(df_reg %>% select(region, cluster), by = "region") %>%
+  left_join(pca_df %>% select(region, cluster), by = "region") %>%
   group_by(cluster) %>%
   summarise(across(all_of(vars_radar), mean, na.rm = TRUE)) %>%
   rename(group = cluster)
@@ -594,3 +615,5 @@ ggradar(
 ```
 
 aca podria caracterizar los clusters, ver como les va, y hacer tipologias mas completas
+
+o sea nos queda bien para representar que los clusters son diferentes
