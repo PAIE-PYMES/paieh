@@ -20,6 +20,7 @@ library(patchwork)
 library(here)
 library(skimr) 
 library(GGally) 
+library(ggrepel)
 
 # Carga de datos 
 ita_control <- read_csv(here("data","processed","variables","it", "control.csv")) |> 
@@ -212,7 +213,7 @@ df_eu |>
 
 
 ```
-Pocas empresas grandes y/o medianas, mucho autoempleo
+Pocas empresas grandes y/o medianas, mucho autoempleo (supongo que 0 es autoempleo)
 
 ```{r}
 # distribuciones con la base de medias
@@ -241,8 +242,6 @@ df_reg |>
 Ahora análisis bivariado de mipymes y otras variables
 
 ```{r}
-library(ggrepel)
-
 #voy a etiquetar las alto peso alto pib, AUNQ CApaz 75 es mucho
 # umbrales
 df_reg <- df_reg %>%
@@ -486,12 +485,27 @@ ggplot(pca_df, aes(PC1, PC2, color = cluster, shape = pais)) +
     y = "PC2 – Estructura PYME",
     color = "Tipología regional"
   ) +
-  theme_minimal()
+  theme_minimal()+
+  geom_text_repel(
+  data = subset(pca_df, cluster == 1),
+  aes(label = region),
+  size = 2.7,
+  color = "grey20",
+  box.padding = 0.4
+)
+
 
 
 ```
 
 queremos ver tipologias regionales: tipo region alta pymes y alto des, alta pymes sbajo des...
+
+1: alta pymes, alto desarrollo
+2: 
+3: alta pymes, bajo desarrollo
+4: 
+
+revisar
 
 ```{r}
 pca_df %>%

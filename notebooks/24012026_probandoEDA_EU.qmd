@@ -38,10 +38,8 @@ df_eu <- bind_rows(
 ) |>
 # Limpieza y Unificación de población
   mutate(
-    pais = coalesce(pais.x, pais.y),
-    poblacion = coalesce(poblacion_total, pobl_total)
-  ) |>
-  select(-pais.x, -pais.y, -poblacion_total, -pobl_total)
+    pais = coalesce(pais.x, pais.y)) |>
+  select(-pais.x, -pais.y)
 
 ```
 
@@ -51,8 +49,8 @@ Agrego indicadores relativos de cantidad de empresas:
 # Indicadores Relativos 
 df_eu <- df_eu |>
   mutate(
-    ent_per_1000 = (ent_nr / poblacion) * 1000, #(empresas por cada 1000 habitantes)
-    tasa_empleo_pyme = (emp_nr / poblacion) * 100 #(empleados por cada 100 habitantes)
+    ent_per_1000 = (ent_nr / pobl_total) * 1000, #(empresas por cada 1000 habitantes)
+    tasa_empleo_pyme = (emp_nr / pobl_total) * 100 #(empleados por cada 100 habitantes)
   )
 
 ```
@@ -270,4 +268,8 @@ ggplot(df_cuadrantes_completo, aes(x = ent_per_1000, y = pbi_per_capita, color =
   theme(legend.position = "bottom",
         strip.text = element_text(face = "bold"))
 ```
+
+Las que tenemos q revisar pq eran las q tenemos de antecedentes:
+toscana y emilia romagna en italia
+comunidad valenciana en españa
 
