@@ -1,0 +1,77 @@
+```{r}
+library(tidyverse)
+```
+# 1. Cargar los diversos datasets
+
+```{r}
+uy_df <- read_csv(file.path("data", "processed", "variables", "uy", "df_uy.csv")) |> mutate(anio = as.Date(ISOdate(anio, 1, 1))) |>
+  inner_join(
+    read_csv(file.path("data", "raw", "uy", "pymes", "numero-empleados.csv")) |>
+      filter(region != "Sin codificar") |>
+      select(!total) |>
+      pivot_longer(cols=!anio:region, names_to="tramo", values_to="n_empleados"),
+    by = c("anio", "region", "tramo")
+  )
+br_df <- read_csv(file.path("data", "processed", "variables", "br", "control.csv")) |>
+  inner_join(read_csv(file.path("data", "processed", "variables", "br", "pymes.csv")) |> mutate(anio = as.Date(ISOdate(anio, 1, 1))), by = c("anio", "region")) |>
+ch_df <- read_csv(file.path("data", "processed", "variables", "ch", "df_ch.csv")) |> mutate(anio = as.Date(ISOdate(anio, 1, 1)))
+```
+
+# 2. Armonizar los nombres de variables
+
+```{r}
+varnames_lookup <- c(
+  "n_empresas" = "numero_de_empresas_e_outras_organizacoes_unidades",
+  "n_empresas" = "ent_nr",
+  "n_empr_per_1k" = "ent_per_1000",
+  "n_empleados" = "emp_nr",
+  "n_empleados" = "pessoal_ocupado_total_pessoas",
+  "contr_po" = "contribucion_po",
+  "contr_vtas" = "contribucion_vtas",
+  "tasa_pobr" = "tasa_pobreza",
+  "tasa_infor" = "tasa_informalidad",
+  "tasa_desem" = "tasa_desempleo",
+  "tasa_homi" = "tasa_homicidios",
+  "pobl_total" = "poblacion",
+  "densi_pobl" = "densidad_pobl",
+  "densi_pobl" = "densidad_poblacion",
+  "area_km2" = "km_2",
+  "pib" = "pib_regional",
+  "pbi_per_cap" = "pbi_per_capita",
+  "pbi_per_cap" = "pib_per_capita",
+  "media_ingreso" = "ingreso_medio_hogares",
+  "media_ingreso" = "ingreso_medio",
+  "idh" = "hdi",
+  "prom_anios_estudio" = "anios_educacion_promedio"
+)
+
+dataset <- list(uy_df, ch_df, br_df) |>
+  lapply(\(df) rename(df, any_of(varnames_lookup))) |>
+    reduce(\(x, y) {
+      common_names <- intersect(colnames(x), colnames(y))
+      print(common_names)
+      return(bind_rows(x |> select(all_of(common_names)), y |> select(all_of(common_names))))
+    }
+  ) |>
+  relocate(all_of(c("anio", "region", "tramo", "n_empresas", "n_empleados")))
+
+rename(ch_df, any_of(varnames_lookup))
+rename(uy_df, any_of(varnames_lookup))
+rename(br_df, any_of(varnames_lookup))
+dataset |>
+  mutate(
+    n_empr_per_1000 = (n_empresas / pobl_total) * 1000,
+    tasa_empleo = (n_empleados / pobl_total) * 100
+  ) |>
+  relocate(tasa_empleo, .after=tasa_homi) |>
+  relocate(n_empr_per_1000, .after = n_empleados)
+```
+
+```{r}
+read_csv(file.path("data", "raw", "uy", "pymes", "numero-empleados.csv")) |>
+  filter(region != "Sin codificar") |>
+  select(!total) |>
+  pivot_longer(cols=!anio:region, names_to="tramo", values_to="n_empleados") |>
+  inner_join(uy_df, by = c("anio", "region", "tramo"))
+```
+
