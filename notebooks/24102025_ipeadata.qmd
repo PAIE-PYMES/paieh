@@ -1,0 +1,82 @@
+```{r}
+library(ipeadatar)
+library(tidyverse)
+```
+
+```{r}
+series_disponibles <- available_series("en")
+regiones <- available_territories("en")
+```
+
+```{r}
+series_disponibles |> filter(str_detect(tolower(name), "acceso") & freq %in% c("Yearly", "Monthly"))
+```
+
+- Series de interes:
+```{r}
+gini <- ipeadata("PNADCA_GINIUF", "en") |>
+  mutate(tcode=as.character(tcode)) |>
+  filter(uname == "States") |>
+  inner_join(regiones |> select(tcode, tname), by = "tcode")
+pib_per_capita_usd <- ipeadata("PIBPCE", "en") |>
+  mutate(tcode=as.character(tcode)) |>
+  filter(uname == "States") |>
+  inner_join(regiones |> select(tcode, tname), by = "tcode")
+tasa_pobreza <- ipeadata("PNADCA_TXPNUF", "en") |>
+  mutate(tcode=as.character(tcode)) |>
+  filter(uname == "States") |>
+  inner_join(regiones |> select(tcode, tname), by = "tcode")
+pob_total <- ipeadata("ADH12_POPTOT", "en") |>
+  mutate(tcode=as.character(tcode)) |>
+  filter(uname == "States") |>
+  inner_join(regiones |> select(tcode, tname), by = "tcode")
+tasa_informalidad <- ipeadata("PNADCT_TXINFORMUF", "en") |>
+  mutate(tcode=as.character(tcode)) |>
+  filter(uname == "States") |>
+  inner_join(regiones |> select(tcode, tname), by = "tcode")
+idh <- ipeadata("IDHMRE", "en") |>
+  mutate(tcode=as.character(tcode)) |>
+  filter(uname == "States") |>
+  inner_join(regiones |> select(tcode, tname), by = "tcode")
+ingreso_medio <- ipeadata("SIS_RDPCMEDIO", "en") |>
+  mutate(tcode=as.character(tcode)) |>
+  filter(uname == "States") |>
+  inner_join(regiones |> select(tcode, tname), by = "tcode")
+prom_anio_estudio <- ipeadata("PNADCA_NMAE25UF", "en") |>
+  mutate(tcode=as.character(tcode)) |>
+  filter(uname == "States") |>
+  inner_join(regiones |> select(tcode, tname), by = "tcode")
+tasa_homicidios <- ipeadata("THOMIC", "en") |>
+  mutate(tcode=as.character(tcode)) |>
+  filter(uname == "States") |>
+  inner_join(regiones |> select(tcode, tname), by = "tcode")
+```
+
+```{r}
+bind_rows(
+  gini,
+  pib_per_capita_usd,
+  tasa_pobreza,
+  pob_total,
+  tasa_informalidad,
+  idh,
+  ingreso_medio,
+  prom_anio_estudio,
+  tasa_homicidios,
+) |>
+  pivot_wider(id_cols=c("date", "tname"), names_from="code", values_from="value") |>
+  rename(
+    anio = "date",
+    region = "tname",
+    gini = "PNADCA_GINIUF",
+    pib_per_capita = "PIBPCE",
+    tasa_pobr = "PNADCA_TXPNUF",
+    pobl_total = "ADH12_POPTOT",
+    tasa_informalidad = "PNADCT_TXINFORMUF",
+    idh = "IDHMRE",
+    ingreso_medio = "SIS_RDPCMEDIO",
+    prom_anio_estudio = "PNADCA_NMAE25UF",
+    tasa_homicidios = "THOMIC"
+  )
+```
+
