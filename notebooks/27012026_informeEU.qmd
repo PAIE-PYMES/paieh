@@ -323,7 +323,7 @@ ggplot(df_reg, aes(peso_emp_micro, gini, color = pais)) +
 ```{r}
 # ratio micro no micro y criminalidad
 
-ggplot(df_reg, aes(ratio_micro_no_micro, tasa_criminalidad, color = pais)) +
+ggplot(df_reg, aes(ratio_micro_no_micro, tasa_homicidios, color = pais)) +
   geom_point() +
   geom_smooth(method = "loess", se = FALSE) +
   scale_x_log10() +
@@ -390,8 +390,8 @@ ggplot(df_reg, aes(q_mipyme, tasa_pobreza, fill = pais)) +
 
 vars_std <- c(
 "renta_media_hogar", "pbi_per_capita", "hdi", "tasa_homicidios","tasa_pobreza", "densidad_pobl",
-  "peso_micro", "ratio_micro_no_micro", "peso_autoempleo",
-  "peso_emp_micro", "ratio_emp_micro_no_micro", "peso_autoempleo_emp",
+  "peso_micro", "ratio_micro_no_micro",
+  "peso_emp_micro", "ratio_emp_micro_no_micro",
    "emp_micro_per_1000", "micro_per_1000"
 )
 

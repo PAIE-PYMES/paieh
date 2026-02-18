@@ -269,7 +269,7 @@ ggplot(df_cuadrantes_completo, aes(x = ent_per_1000, y = pbi_per_capita, color =
         strip.text = element_text(face = "bold"))
 ```
 
-Las que tenemos q revisar pq eran las q tenemos de antecedentes:
+Las que tenemos q revisar como lideres (y confirmar con nuestros datos) pq eran las q tenemos de los antecedentes de la biblio:
 toscana y emilia romagna en italia
 comunidad valenciana en españa
 

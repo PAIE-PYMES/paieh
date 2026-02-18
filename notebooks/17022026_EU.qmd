@@ -1,0 +1,546 @@
+---
+title: "Informe limpio para Italia y España"
+author: "cami"
+format: html
+---
+
+Archivo de análisis inicial sobre las regiones de italia y españa.
+
+# Setup y carga de datos
+
+```{r}
+#| label: setup
+#| message: false
+#| warning: false
+
+library(tidyverse)
+library(here)
+library(skimr)
+library(scales)
+library(GGally)
+library(ggrepel)
+library(patchwork)
+library(FactoMineR)
+library(factoextra)
+library(cluster)
+library(ggradar)
+
+```
+
+```{r}
+#| label: cargo_datos
+
+# Control
+ita_control <- read_csv(here("data","processed","variables","it","control.csv")) |>
+  mutate(anio = year(anio), pais = "Italia")
+
+es_control <- read_csv(here("data","processed","variables","es","control.csv")) |>
+  mutate(anio = year(anio), pais = "España")
+
+# PyMEs
+ita_pymes <- read_csv(here("data","processed","variables","it","pymes.csv"))
+es_pymes  <- read_csv(here("data","processed","variables","es","pymes.csv"))
+
+# Unión
+df_eu <- bind_rows(
+  ita_control |>
+    select(-matches("^pais$")) |>
+    inner_join(ita_pymes |> select(-matches("^pais$")),
+               by = c("region","anio")) |>
+    mutate(pais = "Italia"),
+  
+  es_control |>
+    select(-matches("^pais$")) |>
+    inner_join(es_pymes |> select(-matches("^pais$")),
+               by = c("region","anio")) |>
+    mutate(pais = "España")
+)
+
+```
+
+# Creamos indicadores
+
+Indicadores básicos: empresas cada 1000 habitantes y una "tasa de empleo", que es empleo cada 100 habitantes (No es PET).
+
+```{r}
+#| label: indicadores_basicos
+
+df_eu <- df_eu |>
+  mutate(
+    ent_per_1000 = ent_nr / pobl_total * 1000,
+    tasa_empleo  = emp_nr / pobl_total * 100
+  )
+
+```
+
+Indicadores más detallados
+
+```{r}
+#| label: indicadores_estructura
+
+# Peso por número de empresas
+df_peso_ent <- df_eu |>
+  filter(tramo != "TOTAL") |>
+  group_by(pais, id_region, region, anio, pobl_total, tramo) |>
+  summarise(ent = sum(ent_nr, na.rm = TRUE), .groups = "drop") |>
+  pivot_wider(names_from = tramo, values_from = ent, values_fill = 0) |>
+  rename(
+    ent_0        = `0`,
+    ent_micro    = `1 a 9`,
+    ent_no_micro = `+10`
+  ) |>
+  mutate(
+    ent_con_empleo = ent_micro + ent_no_micro,
+    peso_micro = ent_micro / ent_con_empleo,
+    ratio_micro_no_micro = ent_micro / ent_no_micro,
+    peso_autoempleo = ent_0 / (ent_0 + ent_con_empleo),
+    micro_per_1000 = ent_micro / pobl_total * 1000
+  ) |>
+  select(pais, id_region, region, anio,
+         peso_micro, ratio_micro_no_micro,
+         peso_autoempleo, micro_per_1000)
+
+# Peso por empleo
+df_peso_emp <- df_eu |>
+  filter(tramo != "TOTAL") |>
+  group_by(pais, id_region, region, anio, pobl_total, tramo) |>
+  summarise(emp = sum(emp_nr, na.rm = TRUE), .groups = "drop") |>
+  pivot_wider(names_from = tramo, values_from = emp, values_fill = 0) |>
+  rename(
+    emp_0        = `0`,
+    emp_micro    = `1 a 9`,
+    emp_no_micro = `+10`
+  ) |>
+  mutate(
+    emp_con_empleo = emp_micro + emp_no_micro,
+    peso_emp_micro = emp_micro / emp_con_empleo,
+    ratio_emp_micro_no_micro = emp_micro / emp_no_micro,
+    peso_autoempleo_emp = emp_0 / (emp_0 + emp_con_empleo),
+    emp_micro_per_1000 = emp_micro / pobl_total * 1000
+  ) |>
+  select(pais, id_region, region, anio,
+         peso_emp_micro, ratio_emp_micro_no_micro,
+         peso_autoempleo_emp, emp_micro_per_1000)
+
+# Unión a la base principal
+df_eu <- df_eu |>
+  left_join(df_peso_ent,
+            by = c("pais","id_region","region","anio")) |>
+  left_join(df_peso_emp,
+            by = c("pais","id_region","region","anio"))
+
+```
+
+# Base con medias 
+
+Hago medias de las variables por región, en vez de usar uno de los años.
+
+```{r}
+#| label: region_media_base
+
+df_reg <- df_eu |>
+  group_by(pais, id_region, region, tramo) |>
+  summarise(
+    across(
+      c(
+        pbi_per_capita, renta_media_hogar, gini, hdi,
+        tasa_pobreza, tasa_homicidios, densidad_pobl,
+        ent_per_1000, tasa_empleo,
+        peso_micro, ratio_micro_no_micro, peso_autoempleo,
+        peso_emp_micro, ratio_emp_micro_no_micro,
+        peso_autoempleo_emp, micro_per_1000, emp_micro_per_1000
+      ),
+      mean, na.rm = TRUE
+    ),
+    .groups = "drop"
+  )
+
+```
+
+# Distribución
+
+¿Cómo se distribuyen las empresas por tamaño y por país?
+
+```{r}
+#| label: distribución_tamaño
+
+df_eu |>
+  filter(tramo != "TOTAL") |>
+  filter(anio == max(anio, na.rm = TRUE)) |>
+  ggplot(aes(tramo, ent_nr, fill = pais)) +
+  geom_boxplot() +
+  scale_y_log10() +
+  theme_minimal() +
+  labs(
+    x = "Tamaño de empresa",
+    y = "Número de empresas (log)",
+    title = "Distribución del tamaño empresarial"
+  )
+
+```
+
+
+# Correlaciones
+
+```{r}
+df_reg |>
+  select(pais, peso_micro, pbi_per_capita, tasa_pobreza, hdi) |>
+  ggpairs(aes(color = pais, alpha = 0.4)) +
+  theme_minimal() +
+  labs(title = "Correlaciones Cruzadas por País")
+```
+
+#Relaciones bivariadas
+
+```{r}
+#| label: bivariada_micro_pib
+
+df_reg |>
+  ggplot(aes(peso_micro, pbi_per_capita, color = pais)) +
+  geom_point(alpha = 0.7) +
+  geom_smooth(method = "loess", se = FALSE) +
+  theme_minimal() +
+  labs(
+    x = "Peso de número de Microempresas",
+    y = "PIB per cápita"
+  )
+
+```
+
+```{r}
+#| label: bivariada_empleomicro_pib
+
+ggplot(df_reg,
+       aes(peso_emp_micro, pbi_per_capita, color = pais)) +
+  geom_point(alpha = 0.7) +
+  geom_smooth(method = "loess", se = FALSE) +
+  theme_minimal() +
+  labs(
+    x = "Peso del empleo en microempresas",
+    y = "PIB per cápita"
+  )
+
+```
+```{r}
+#| label: bivariada_ratiomicro_criminalidad
+
+ggplot(df_reg, aes(ratio_micro_no_micro, tasa_homicidios, color = pais)) +
+  geom_point() +
+  geom_smooth(method = "loess", se = FALSE) +
+  scale_x_log10() +
+  theme_minimal()
+
+#log en el ratio?
+```
+
+
+# Cuadrantes regionales
+
+Busco las benchmarks
+
+```{r}
+#| label: quadrants
+
+ultimo_anio <- max(df_eu$anio, na.rm = TRUE)
+
+df_quad <- df_eu |>
+  filter(anio == ultimo_anio, tramo == "1 a 9") |>
+  distinct(pais, region, .keep_all = TRUE) |>
+  group_by(pais) |>
+  mutate(
+    med_pyme = median(ent_per_1000, na.rm = TRUE),
+    med_pbi  = median(pbi_per_capita, na.rm = TRUE),
+    patron = case_when(
+      ent_per_1000 >= med_pyme & pbi_per_capita >= med_pbi ~ "Alto PyME / Alto PIB",
+      ent_per_1000 <  med_pyme & pbi_per_capita >= med_pbi ~ "Bajo PyME / Alto PIB",
+      ent_per_1000 >= med_pyme & pbi_per_capita <  med_pbi ~ "Alto PyME / Bajo PIB",
+      TRUE ~ "Bajo PyME / Bajo PIB"
+    )
+  ) |>
+  ungroup()
+
+ggplot(df_quad,
+       aes(ent_per_1000, pbi_per_capita, color = patron)) +
+  geom_point(size = 2, alpha = 0.7) +
+  geom_text_repel(
+    aes(label = if_else(patron == "Alto PyME / Alto PIB", region, NA_character_)),
+    show.legend = FALSE
+  ) +
+  geom_vline(aes(xintercept = med_pyme), linetype = "dashed") +
+  geom_hline(aes(yintercept = med_pbi), linetype = "dashed") +
+  facet_wrap(~ pais) +
+  theme_minimal()
+
+```
+
+# PCA y Tipologías regionales
+
+```{r}
+#| label: pca_prep
+
+vars_pca <- c(
+  "renta_media_hogar", "pbi_per_capita", "hdi", "tasa_homicidios","tasa_pobreza", "densidad_pobl",
+  "peso_micro", "ratio_micro_no_micro",
+  "peso_emp_micro", "ratio_emp_micro_no_micro",
+   "emp_micro_per_1000", "micro_per_1000"
+)
+
+#Estandarización z score
+df_std <- df_reg |>
+  mutate(across(all_of(vars_pca), ~ as.numeric(scale(.)))) |>
+  drop_na(all_of(vars_pca))
+
+```
+
+```{r}
+#| label: pca_modelo
+
+pca <- PCA(df_std |> select(all_of(vars_pca)),
+           scale.unit = FALSE, graph = FALSE)
+
+scores <- as.data.frame(pca$ind$coord[,1:2])
+df_pca <- bind_cols(df_std |> select(pais, region), scores)
+
+
+pca$var$coord # veo que variables pesan mas
+
+pca$eig
+
+```
+
+```{r}
+#| label: clustering
+
+set.seed(123)
+k4 <- kmeans(df_pca[,c("Dim.1","Dim.2")], centers = 4, nstart = 25)
+df_pca$cluster <- factor(k4$cluster)
+
+```
+
+```{r}
+#| label: pca_graf
+
+ggplot(df_pca,
+       aes(Dim.1, Dim.2, color = cluster, shape = pais)) +
+  geom_point(size = 3) +
+  geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.5) +
+  geom_vline(xintercept = 0, linetype = "dashed", alpha = 0.5) +
+  labs(
+    x = "PC1 – Desarrollo socioeconómico",
+    y = "PC2 – Estructura PYME",
+    color = "Tipología regional"
+  ) +
+  theme_minimal()
+
+```
+Supongo que la tipología que nos interesa es la 1, raro lo poco de italia.
+
+# Radar por clusters
+
+```{r}
+#| label: radar_clusters_prep
+
+vars_radar <- c(
+  "hdi", "renta_media_hogar",
+  "peso_micro", "peso_emp_micro",
+  "tasa_pobreza", "tasa_homicidios"
+)
+
+#min max y valores más altos = mejor situación
+# es decir: valores normalizados (0–1), mayor valor indica mejor desempeño
+
+df_radar <- df_reg |>
+  select(pais, region, all_of(vars_radar)) |>
+  mutate(
+    tasa_pobreza = -tasa_pobreza,
+    tasa_criminalidad = -tasa_homicidios
+  ) |>
+  mutate(across(all_of(vars_radar), ~ rescale(.)))
+
+df_radar_cluster <- df_radar |>
+  left_join(df_pca |> select(region, cluster), by = "region") |>
+  group_by(cluster) |>
+  summarise(across(all_of(vars_radar), mean, na.rm = TRUE)) |>
+  rename(group = cluster)
+
+
+```
+
+```{r}
+#| label: graf_radar_cluster
+
+ggradar(df_radar_cluster, legend.position = "bottom")
+```
+
+
+Quiero hacer un grafico radar así con regiones benchmark y regiones líderes (las que tienen alto peso mipymes y alto desarrollo local) como este:
+
+
+```{r}
+#| label: radar_benchmarks
+
+# regiones modelo o lideres (segun nuestros antecedentes)
+reg_modelo <- df_radar %>%
+  filter(region %in% c(
+    "Toscana", "Emilia-Romagna",
+    "Comunidad Valenciana"
+  ))
+
+#toscana y emilia romagna en italia
+#comunidad valenciana en españa
+
+radar_data <- reg_modelo %>%
+  select(region, all_of(vars_radar))
+
+ggradar(
+  radar_data,
+  grid.min = 0,
+  grid.mid = 0.5,
+  grid.max = 1,
+  group.colours = c("steelblue", "darkgreen", "firebrick"),
+  axis.label.size = 3,
+  grid.label.size = 3,
+  legend.position = "bottom"
+)
+
+```
+Probar otras regiones
+
+Antes habia probado: "Lombardia", "Emilia-Romagna","Cataluña", "País Vasco" y parecian similares, pero...
+
+
+
+# Pruebo otra cosa del PCA pq el anterior no tiene tanto sentido, creo
+
+PCA de modelo MIPYME:
+
+```{r}
+vars_mipyme <- c(
+  "micro_per_1000",
+  "emp_micro_per_1000",
+  "peso_micro",
+  "peso_emp_micro",
+  "ratio_micro_no_micro",
+  "ratio_emp_micro_no_micro"
+)
+
+df_std_mipyme <- df_reg |>
+  mutate(across(all_of(vars_mipyme), ~ as.numeric(scale(.)))) |>
+  drop_na(all_of(vars_mipyme))
+
+pca_mipyme <- PCA(df_std_mipyme |> select(all_of(vars_mipyme)),
+                  scale.unit = FALSE, graph = FALSE)
+
+scores_mipyme <- as.data.frame(pca_mipyme$ind$coord[, 1]) |>
+  mutate(region = df_std_mipyme$region)
+
+colnames(scores_mipyme)[1] <- "mipyme_score"
+
+
+```
+
+
+PC1 = intensidad MiPyME
+
+PC2 = tipo de articulación (empleo vs número)
+
+
+PCA de Desarrollo
+
+```{r}
+vars_desarrollo <- c(
+  "pbi_per_capita",
+  "renta_media_hogar",
+  "hdi",
+  "tasa_pobreza",
+  "tasa_homicidios"
+)
+
+df_std_dev <- df_reg |>
+  mutate(
+    tasa_pobreza = -tasa_pobreza,
+    tasa_homicidios = -tasa_homicidios
+  ) |>
+  mutate(across(all_of(vars_desarrollo), ~ as.numeric(scale(.)))) |>
+  drop_na(all_of(vars_desarrollo))
+
+pca_dev <- PCA(
+  df_std_dev |> select(all_of(vars_desarrollo)),
+  scale.unit = FALSE,
+  graph = FALSE
+)
+
+scores_dev <- as.data.frame(pca_dev$ind$coord[, 1]) |>
+  mutate(region = df_std_dev$region)
+
+colnames(scores_dev)[1] <- "desarrollo_score"
+
+
+```
+
+PC1 = desarrollo local
+
+Grafico:
+
+```{r}
+df_scores <- df_reg |>
+  select(pais, region) |>
+  distinct() |>
+  inner_join(scores_mipyme, by = "region") |>
+  inner_join(scores_dev, by = "region")
+
+df_scores <- df_scores |>
+  mutate(
+    lider_mipyme = mipyme_score > 0 & desarrollo_score > 0
+  )
+
+df_scores_plot <- df_scores %>%
+  group_by(pais, region) %>%
+  summarise(
+    mipyme_score = mean(mipyme_score, na.rm = TRUE),
+    desarrollo_score = mean(desarrollo_score, na.rm = TRUE),
+    lider_mipyme = any(lider_mipyme),
+    .groups = "drop"
+  )
+
+
+ggplot(df_scores_plot,
+       aes(mipyme_score, desarrollo_score)) +
+  
+  geom_point(aes(color = pais),
+             size = 2.5, alpha = 0.7) +
+  
+  geom_point(
+    data = df_scores_plot |> filter(lider_mipyme),
+    shape = 21,
+    fill = "gold",
+    color = "black",
+    size = 4,
+    stroke = 0.9
+  ) +
+  
+  geom_text_repel(
+    data = df_scores_plot |> filter(lider_mipyme),
+    aes(label = paste0(region, " (", pais, ")")),
+    size = 3.6,
+    fontface = "bold",
+    box.padding = 0.6,
+    point.padding = 0.4,
+    force = 6,
+    max.overlaps = Inf,
+    show.legend = FALSE
+  ) +
+  
+  geom_vline(xintercept = 0, linetype = "dashed", alpha = 0.6) +
+  geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.6) +
+  
+  theme_minimal() +
+  labs(
+    x = "Modelo MiPyME (intensidad y peso)",
+    y = "Desarrollo local",
+    color = "País"
+  )
+
+```
+
+Cuadrante superior derecho = LÍDERES MiPyME
